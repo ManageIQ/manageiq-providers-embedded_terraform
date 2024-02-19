@@ -1,0 +1,3 @@
+module EmbeddedTerraformRepositoryHelper
+  include TextualSummary
+end
