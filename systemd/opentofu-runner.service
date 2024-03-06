@@ -3,5 +3,7 @@ PartOf=opentofu-runner.target
 [Install]
 WantedBy=opentofu-runner.target
 [Service]
-ExecStart=/usr/bin/ruby -e 'sleep'
+ExecStart=/usr/bin/ruby -e sleep
+Type=simple
+Restart=always
 Slice=manageiq.slice
