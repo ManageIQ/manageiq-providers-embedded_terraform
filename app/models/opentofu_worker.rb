@@ -33,4 +33,27 @@ class OpentofuWorker < MiqWorker
   def container_image
     "opentofu-runner"
   end
+
+  def unit_config_file
+    # Override this in a sub-class if the specific instance needs
+    # any additional config
+    <<~UNIT_CONFIG_FILE
+      [Service]
+      MemoryHigh=#{worker_settings[:memory_threshold].bytes}
+      TimeoutStartSec=#{worker_settings[:starting_timeout]}
+      TimeoutStopSec=#{worker_settings[:stopping_timeout]}
+      #{unit_environment_variables.map { |env_var| "Environment=#{env_var}" }.join("\n")}
+    UNIT_CONFIG_FILE
+  end
+
+  def unit_environment_variables
+    database_config = ActiveRecord::Base.connection_db_config.configuration_hash
+
+    [
+      "DATABASE_HOSTNAME=#{database_config[:host]}",
+      "DATABASE_NAME=#{database_config[:database]}",
+      "DATABASE_USERNAME=#{database_config[:username]}",
+      "MEMCACHED_SERVER=#{::Settings.session.memcache_server}"
+    ]
+  end
 end
