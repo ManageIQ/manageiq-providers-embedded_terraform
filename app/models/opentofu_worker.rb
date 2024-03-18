@@ -30,18 +30,6 @@ class OpentofuWorker < MiqWorker
     "opentofu-runner"
   end
 
-  def container_image_namespace
-    ENV["CONTAINER_IMAGE_NAMESPACE"]
-  end
-
-  def container_image_tag
-    ENV["CONTAINER_IMAGE_TAG"] || "latest"
-  end
-
-  def default_image
-    "#{container_image_namespace}/#{container_image_name}:#{container_image_tag}"
-  end
-
   def container_image
     ENV["OPENTOFU_RUNNER_IMAGE"] || default_image
   end
