@@ -1,5 +1,5 @@
 #main_div
-  - if %w[workflows].include?(@display)
+  - if %w[configuration_script_payloads].include?(@display)
     = render :partial => "layouts/gtl", :locals => {:action_url => "show/#{@record.id}"}
   - elsif @showtype == 'output'
     = render :partial => 'output'
