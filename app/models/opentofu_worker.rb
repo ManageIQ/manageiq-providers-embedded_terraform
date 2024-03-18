@@ -56,5 +56,4 @@ class OpentofuWorker < MiqWorker
       "MEMCACHED_SERVER=#{::Settings.session.memcache_server}"
     ]
   end
-
 end
