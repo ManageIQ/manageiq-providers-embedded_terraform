@@ -1,6 +1,7 @@
 class OpentofuWorker < MiqWorker
-  self.required_roles = ["embedded_terraform"]
-  self.rails_worker   = false
+  self.required_roles        = ["embedded_terraform"]
+  self.rails_worker          = false
+  self.maximum_workers_count = 1
 
   def self.service_base_name
     "opentofu-runner"
@@ -17,8 +18,6 @@ class OpentofuWorker < MiqWorker
   def self.kill_priority
     MiqWorkerType::KILL_PRIORITY_GENERIC_WORKERS
   end
-
-  self.maximum_workers_count = 1
 
   # There can only be a single instance running so the unit name can just be
   # "opentofu-runner.service"
