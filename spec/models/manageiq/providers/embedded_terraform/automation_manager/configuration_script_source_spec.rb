@@ -148,7 +148,7 @@ RSpec.describe ManageIQ::Providers::EmbeddedTerraform::AutomationManager::Config
       it "finds top level template" do
         record = build_record
 
-        expect(templates_for(record)).to eq(["hello_world_local(master##{local_repo}/)"])
+        expect(templates_for(record)).to(eq(["hello_world_local(master):#{local_repo}/"]))
       end
 
       it "saves the template payload" do
@@ -163,10 +163,12 @@ RSpec.describe ManageIQ::Providers::EmbeddedTerraform::AutomationManager::Config
 
         name = described_class.template_name_from_git_repo_url(local_repo, 'master', '.')
 
-        expect(record.configuration_script_payloads.first).to have_attributes(
-          :name         => name,
-          :payload      => payload.to_json,
-          :payload_type => "json"
+        expect(record.configuration_script_payloads.first).to(
+          have_attributes(
+            :name         => name,
+            :payload      => payload.to_json,
+            :payload_type => "json"
+          )
         )
       end
 
@@ -185,7 +187,7 @@ RSpec.describe ManageIQ::Providers::EmbeddedTerraform::AutomationManager::Config
           params[:scm_url] = "file://#{nested_repo}"
           record           = build_record
 
-          expect(templates_for(record)).to eq(["hello-world(master##{nested_repo}/templates)"])
+          expect(templates_for(record)).to eq(["hello-world(master):#{nested_repo}/templates"])
         end
       end
 
@@ -208,8 +210,8 @@ RSpec.describe ManageIQ::Providers::EmbeddedTerraform::AutomationManager::Config
           expect(templates_for(record)).to(
             eq(
               [
-                "hello-world(master##{multiple_templates_repo}/templates)",
-                "single-vm(master##{multiple_templates_repo}/templates)"
+                "hello-world(master):#{multiple_templates_repo}/templates",
+                "single-vm(master):#{multiple_templates_repo}/templates"
               ]
             )
           )
@@ -238,7 +240,7 @@ RSpec.describe ManageIQ::Providers::EmbeddedTerraform::AutomationManager::Config
 
           expect(templates_for(record)).to eq(
             [
-              "hello_world_local(other_branch##{local_repo}/)"
+              "hello_world_local(other_branch):#{local_repo}/"
             ]
           )
         end

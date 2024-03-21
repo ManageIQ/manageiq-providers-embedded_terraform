@@ -39,8 +39,11 @@ class ManageIQ::Providers::EmbeddedTerraform::AutomationManager::ConfigurationSc
 
   # Return Template name, using relative_path's basename prefix,
   #   and suffix with git-repo url details
-  #     'basename(branch_name#hostname/path/relative_path_parent)'
-  # eg. "hello-world(main#github.ibm.com/manoj-puthran/sample-scripts/terraform/templates)"
+  #     'basename(branch_name):hostname/path/relative_path_parent)'
+  # eg.
+  #   https://github.ibm.com/manoj-puthran/sample-scripts/tree/v2.0/terraform/templates/hello-world
+  #       is converted as
+  #   "hello-world(v2.0):github.ibm.com/manoj-puthran/sample-scripts/terraform/templates"
   def self.template_name_from_git_repo_url(git_repo_url, branch_name, relative_path)
     temp_url = git_repo_url
     # URI library cannot handle git urls, so just convert it to a standard url.
@@ -58,7 +61,7 @@ class ManageIQ::Providers::EmbeddedTerraform::AutomationManager::ConfigurationSc
       basename = File.basename(relative_path)
       parent_path = File.dirname(relative_path)
     end
-    "#{basename}(#{branch_name}##{hostname}#{path}/#{parent_path})"
+    "#{basename}(#{branch_name}):#{hostname}#{path}/#{parent_path}"
   end
 
   private
