@@ -2,9 +2,8 @@ class ManageIQ::Providers::EmbeddedTerraform::Provider < Provider
   include DefaultTerraformObjects
 
   has_one :automation_manager,
-          :foreign_key => "provider_id",
-          :class_name  => "ManageIQ::Providers::EmbeddedTerraform::AutomationManager",
-          :autosave    => true
+          :class_name => "ManageIQ::Providers::EmbeddedTerraform::AutomationManager",
+          :autosave   => true
 
   before_validation :ensure_managers
 
@@ -18,5 +17,4 @@ class ManageIQ::Providers::EmbeddedTerraform::Provider < Provider
       automation_manager.zone_id = zone_id
     end
   end
-
 end

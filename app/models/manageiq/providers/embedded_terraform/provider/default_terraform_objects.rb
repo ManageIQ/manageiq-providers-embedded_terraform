@@ -24,5 +24,4 @@ module ManageIQ::Providers::EmbeddedTerraform::Provider::DefaultTerraformObjects
   def set_default_terraform_object(name, value)
     default_terraform_objects.find_or_initialize_by(:name => name).update(:value => value)
   end
-
 end

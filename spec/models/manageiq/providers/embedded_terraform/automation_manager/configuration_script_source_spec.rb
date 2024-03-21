@@ -1,8 +1,6 @@
-# TODO: replace FakeAnsibleRepo with FakeTerraformRepo
-FakeTerraformRepo = Spec::Support::FakeAnsibleRepo
+FakeTerraformRepo = Spec::Support::FakeAnsibleRepo # TODO: replace FakeAnsibleRepo with FakeTerraformRepo
 
 RSpec.describe ManageIQ::Providers::EmbeddedTerraform::AutomationManager::ConfigurationScriptSource do
-
   context "with a local repo" do
     let(:manager) do
       FactoryBot.create(:provider_embedded_terraform, :default_organization => 1).managers.first
@@ -27,8 +25,6 @@ RSpec.describe ManageIQ::Providers::EmbeddedTerraform::AutomationManager::Config
       repo = FakeTerraformRepo.new(local_repo, repo_dir_structure)
       repo.generate
       repo.git_branch_create("other_branch")
-
-      GitRepository
       stub_const("GitRepository::GIT_REPO_DIRECTORY", repo_dir)
 
       EvmSpecHelper.assign_embedded_terraform_role
@@ -42,7 +38,7 @@ RSpec.describe ManageIQ::Providers::EmbeddedTerraform::AutomationManager::Config
 
     def files_in_repository(git_repo_dir)
       repo = Rugged::Repository.new(git_repo_dir.to_s)
-      repo.ref("HEAD").target.target.tree.find_all.map { |f| f[:name] }
+      repo.ref("HEAD").target.target.tree.find_all.pluck(:name)
     end
 
     describe ".create_in_provider" do
@@ -138,15 +134,14 @@ RSpec.describe ManageIQ::Providers::EmbeddedTerraform::AutomationManager::Config
         it "converts true/false values instead of integers" do
           subject.update(:verify_ssl => false)
 
-          expect(described_class.last.verify_ssl).to eq(OpenSSL::SSL::VERIFY_NONE)
-          expect(GitRepository.last.verify_ssl).to   eq(OpenSSL::SSL::VERIFY_NONE)
+          expect(described_class.last.verify_ssl).to(eq(OpenSSL::SSL::VERIFY_NONE))
+          expect(GitRepository.last.verify_ssl).to(eq(OpenSSL::SSL::VERIFY_NONE))
 
           subject.update(:verify_ssl => true)
-          expect(described_class.last.verify_ssl).to eq(OpenSSL::SSL::VERIFY_PEER)
-          expect(GitRepository.last.verify_ssl).to   eq(OpenSSL::SSL::VERIFY_PEER)
+          expect(described_class.last.verify_ssl).to(eq(OpenSSL::SSL::VERIFY_PEER))
+          expect(GitRepository.last.verify_ssl).to(eq(OpenSSL::SSL::VERIFY_PEER))
         end
       end
-
     end
 
     describe "#templates_in_git_repository" do
@@ -204,25 +199,26 @@ RSpec.describe ManageIQ::Providers::EmbeddedTerraform::AutomationManager::Config
           ]
         end
 
-        it "finds all playbooks" do
+        it "finds all templates" do
           FakeTerraformRepo.generate(multiple_templates_repo, multiple_templates_repo_structure)
 
           params[:scm_url] = "file://#{multiple_templates_repo}"
           record           = build_record
 
-          expect(templates_for(record)).to eq(
-            [
-              "hello-world(master##{multiple_templates_repo}/templates)",
-              "single-vm(master##{multiple_templates_repo}/templates)"
-            ]
+          expect(templates_for(record)).to(
+            eq(
+              [
+                "hello-world(master##{multiple_templates_repo}/templates)",
+                "single-vm(master##{multiple_templates_repo}/templates)"
+              ]
+            )
           )
         end
       end
-
     end
 
     describe "#update_in_provider" do
-      let(:update_params)      { {:scm_branch => "other_branch"} }
+      let(:update_params) { {:scm_branch => "other_branch"} }
       # let(:notify_update_args) { notification_args('update', update_params) }
 
       context "with valid params" do
@@ -300,11 +296,10 @@ RSpec.describe ManageIQ::Providers::EmbeddedTerraform::AutomationManager::Config
 
           result.sync
 
-          expect(result.status).to eq("successful")
-          expect(result.last_update_error).to be_nil
+          expect(result.status).to(eq("successful"))
+          expect(result.last_update_error).to(be_nil)
         end
       end
-
     end
 
     def templates_for(repo)
@@ -316,7 +311,6 @@ RSpec.describe ManageIQ::Providers::EmbeddedTerraform::AutomationManager::Config
       described_class.create_in_provider manager.id, params
     end
   end
-
 
   describe "git_repository interaction" do
     let(:auth) { FactoryBot.create(:embedded_terraform_scm_credential) }

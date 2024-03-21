@@ -27,7 +27,7 @@ class ManageIQ::Providers::EmbeddedTerraform::AutomationManager::ConfigurationSc
         found.update!(attrs)
       end
 
-      current.values.each(&:destroy)
+      current.each_value(&:destroy)
       configuration_script_payloads.reload
     end
 
