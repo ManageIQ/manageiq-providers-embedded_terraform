@@ -302,6 +302,65 @@ RSpec.describe ManageIQ::Providers::EmbeddedTerraform::AutomationManager::Config
       end
     end
 
+    describe "#update_in_provider_queue" do
+      it "creates a task and queue item" do
+        record    = build_record
+        task_id   = record.update_in_provider_queue({})
+        task_name = "Updating #{described_class::FRIENDLY_NAME} (name=#{record.name})"
+
+        expect(MiqTask.find(task_id)).to(have_attributes(:name => task_name))
+        expect(MiqQueue.first).to(
+          have_attributes(
+            :instance_id => record.id,
+            :args        => [{:task_id => task_id}],
+            :class_name  => described_class.name,
+            :method_name => "update_in_provider",
+            :priority    => MiqQueue::HIGH_PRIORITY,
+            # :role        => "embedded_terraform",
+            :zone        => nil
+          )
+        )
+      end
+    end
+
+    describe "#delete_in_provider" do
+      it "deletes the record and removes the git dir" do
+        record = build_record
+        git_repo_dir = repo_dir.join(record.git_repository.id.to_s)
+
+        # expect(Notification).to(receive(:create!).with(notification_args('deletion', {})))
+        record.delete_in_provider
+
+        # Run most recent queue item (`GitRepository#broadcast_repo_dir_delete`)
+        MiqQueue.get.deliver
+
+        expect(record).to(be_deleted)
+
+        expect(git_repo_dir).to_not(exist)
+      end
+    end
+
+    describe "#delete_in_provider_queue" do
+      it "creates a task and queue item" do
+        record    = build_record
+        task_id   = record.delete_in_provider_queue
+        task_name = "Deleting #{described_class::FRIENDLY_NAME} (name=#{record.name})"
+
+        expect(MiqTask.find(task_id)).to(have_attributes(:name => task_name))
+        expect(MiqQueue.first).to(
+          have_attributes(
+            :instance_id => record.id,
+            :args        => [],
+            :class_name  => described_class.name,
+            :method_name => "delete_in_provider",
+            :priority    => MiqQueue::HIGH_PRIORITY,
+            # :role        => "embedded_terraform",
+            :zone        => nil
+          )
+        )
+      end
+    end
+
     def templates_for(repo)
       repo.configuration_script_payloads.pluck(:name)
     end
@@ -310,6 +369,16 @@ RSpec.describe ManageIQ::Providers::EmbeddedTerraform::AutomationManager::Config
       # expect(Notification).to receive(:create!).with(any_args).twice
       described_class.create_in_provider manager.id, params
     end
+
+    # def notification_args(action, op_arg = params)
+    #   {
+    #     :options => {
+    #       :op_name => "#{described_class::FRIENDLY_NAME} #{action}",
+    #       :op_arg  => "(#{op_arg.except(:name).map { |k, v| "#{k}=#{v}" }.join(', ')})",
+    #       :tower   => "EMS(manager_id=#{manager.id})"
+    #     }
+    #   }
+    # end
   end
 
   describe "git_repository interaction" do
