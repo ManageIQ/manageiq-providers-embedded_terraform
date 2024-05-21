@@ -45,7 +45,7 @@ class OpentofuWorker < MiqWorker
   def unit_environment_variables
     {
       "DATABASE_HOSTNAME"     => database_configuration[:host],
-      "DATABASE_NAME"         => database_configuration[:database],
+      "DATABASE_NAME"         => 'tfdb_production',
       "DATABASE_USERNAME"     => database_configuration[:username],
       "MEMCACHED_SERVER"      => ::Settings.session.memcache_server,
       "OPENTOFU_RUNNER_IMAGE" => container_image
