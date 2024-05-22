@@ -15,7 +15,7 @@ RSpec.describe OpentofuWorker do
   end
 
   it "#container_port" do
-    expect(worker.container_port).to eq(3000)
+    expect(worker.container_port).to eq(6000)
   end
 
   it "#worker_deployment_name" do
