@@ -20,11 +20,12 @@ class ManageIQ::Providers::EmbeddedTerraform::AutomationManager::Job < Job
 
   def execute
     template_path = File.join(options[:git_checkout_tempdir], template_relative_path)
+    credentials   = Authentication.where(:id => options[:credentials])
 
     response = Terraform::Runner.run(
       options[:input_vars],
       template_path,
-      :credentials => options[:credentials],
+      :credentials => credentials,
       :env_vars    => options[:env_vars]
     )
 

@@ -21,7 +21,7 @@ module Terraform
       #        terraform-runner run
       # @param template_path [String] Path to the template we will want to run
       # @param tags [Hash] Hash with key/values pairs that will be passed as tags to the terraform-runner run
-      # @param credentials [Array] List of Authentication object ids to provide to the terraform run
+      # @param credentials [Array] List of Authentication objects to provide to the terraform run
       # @param env_vars [Hash] Hash with key/value pairs that will be passed as environment variables to the
       #        terraform-runner run
       # @return [Terraform::Runner::ResponseAsync] Response object of terraform-runner create action
