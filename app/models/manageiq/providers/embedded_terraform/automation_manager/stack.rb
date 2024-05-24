@@ -36,7 +36,7 @@ class ManageIQ::Providers::EmbeddedTerraform::AutomationManager::Stack < ManageI
     private
 
     def collect_authentications(manager, options)
-      credential_ids = options[:credential] || []
+      credential_ids = options[:credentials] || []
 
       manager.credentials.where(:id => credential_ids)
     end

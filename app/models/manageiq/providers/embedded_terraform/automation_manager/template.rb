@@ -3,7 +3,7 @@ class ManageIQ::Providers::EmbeddedTerraform::AutomationManager::Template < Mana
 
   def run(vars = {}, _userid = nil)
     env_vars    = vars.delete(:env)        || {}
-    credentials = vars.delete(:credential) || []
+    credentials = vars.delete(:credentials)
 
     self.class.module_parent::Job.create_job(self, env_vars, vars, credentials).tap(&:signal_start)
   end
