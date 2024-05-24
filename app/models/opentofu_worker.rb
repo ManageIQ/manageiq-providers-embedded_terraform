@@ -65,7 +65,7 @@ class OpentofuWorker < MiqWorker
       "DATABASE_HOSTNAME"     => database_configuration[:host],
       "DATABASE_NAME"         => database_configuration[:database],
       "DATABASE_USERNAME"     => database_configuration[:username],
-      "MEMCACHED_SERVER"      => ::Settings.session.memcache_server,
+      "MEMCACHE_SERVERS"      => ::Settings.session.memcache_server,
       "OPENTOFU_RUNNER_IMAGE" => container_image
     }
   end
