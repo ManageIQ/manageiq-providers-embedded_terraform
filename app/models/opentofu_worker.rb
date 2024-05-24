@@ -5,7 +5,7 @@ class OpentofuWorker < MiqWorker
   self.rails_worker          = false
   self.maximum_workers_count = 1
 
-  HEALTH_PORT = 6000
+  SERVICE_PORT = 6000
 
   def self.service_base_name
     "opentofu-runner"
@@ -24,16 +24,16 @@ class OpentofuWorker < MiqWorker
   end
 
   def container_port
-    6000
+    SERVICE_PORT
   end
 
   def add_liveness_probe(container_definition)
-    container_definition[:livenessProbe] = container_definition[:livenessProbe].except(:exec).merge(:httpGet => {:path => "/api/v1/ready", :port => HEALTH_PORT, :scheme => "HTTPS"})
+    container_definition[:livenessProbe] = container_definition[:livenessProbe].except(:exec).merge(:httpGet => {:path => "/api/v1/ready", :port => SERVICE_PORT, :scheme => "HTTPS"})
   end
 
   def add_readiness_probe(container_definition)
     container_definition[:readinessProbe] = {
-      :httpGet             => {:path => "/api/v1/ready", :port => HEALTH_PORT, :scheme => "HTTPS"},
+      :httpGet             => {:path => "/api/v1/ready", :port => SERVICE_PORT, :scheme => "HTTPS"},
       :initialDelaySeconds => 60,
       :timeoutSeconds      => 3
     }
@@ -72,6 +72,9 @@ class OpentofuWorker < MiqWorker
 
   def configure_service_worker_deployment(definition)
     super
+
+    definition[:spec][:template][:spec][:containers].first[:ports] = [{:containerPort => container_port}]
+
     if ENV["API_SSL_SECRET_NAME"].present?
       definition[:spec][:template][:spec][:containers].first[:volumeMounts] << {:name => "cert-path", :mountPath => "/opt/app-root/src/config/cert"}
       definition[:spec][:template][:spec][:volumes] << {:name => "cert-path", :secret => {:secretName => ENV["API_SSL_SECRET_NAME"], :items => [{:key => "tf_runner_crt", :path => "tls.crt"}, {:key => "tf_runner_key", :path => "tls.key"}], :defaultMode => 420}}
