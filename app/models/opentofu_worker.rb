@@ -5,6 +5,7 @@ class OpentofuWorker < MiqWorker
   self.rails_worker          = false
   self.maximum_workers_count = 1
 
+  OPENTOFU_RUNTIME_DIR = "/var/lib/manageiq/opentofu-runner".freeze
   SERVICE_PORT = 6000
 
   def self.service_base_name
@@ -57,6 +58,7 @@ class OpentofuWorker < MiqWorker
 
   def enable_systemd_unit
     super
+    create_tls_certs
     create_podman_secret
   end
 
@@ -81,6 +83,28 @@ class OpentofuWorker < MiqWorker
     end
   end
 
+  def create_tls_certs
+    opentofu_runner_certs_dir = Pathname.new("#{OPENTOFU_RUNTIME_DIR}/certs")
+    unless opentofu_runner_certs_dir.exist?
+      opentofu_runner_certs_dir.mkpath
+      opentofu_runner_certs_dir.chown(manageiq_uid, manageiq_gid)
+    end
+
+    opentofu_runner_tls_key = opentofu_runner_certs_dir.join("tls.key")
+    opentofu_runner_tls_crt = opentofu_runner_certs_dir.join("tls.crt")
+
+    return if opentofu_runner_tls_key.exist? && opentofu_runner_tls_crt.exist?
+
+    AwesomeSpawn.run!("/usr/bin/generate_miq_server_cert.sh", :env => {"NEW_CERT_FILE" => opentofu_runner_tls_crt.to_s, "NEW_KEY_FILE" => opentofu_runner_tls_key.to_s})
+
+    # NOTE: non-root podman pods run as a random ID mapped user and don't belong to
+    # the normal manageiq user/group so we have to allow read for other
+    opentofu_runner_tls_key.chmod(0o644)
+    opentofu_runner_tls_key.chown(manageiq_uid, manageiq_gid)
+    opentofu_runner_tls_crt.chmod(0o644)
+    opentofu_runner_tls_crt.chown(manageiq_uid, manageiq_gid)
+  end
+
   def create_podman_secret
     return if AwesomeSpawn.run("runuser", :params => [[:login, "manageiq"], [:command, "podman secret exists --root=#{Rails.root.join("data/containers/storage")} opentofu-runner-secret"]]).success?
 
@@ -91,5 +115,13 @@ class OpentofuWorker < MiqWorker
 
   def database_configuration
     ActiveRecord::Base.connection_db_config.configuration_hash
+  end
+
+  def manageiq_uid
+    @manageiq_uid ||= Process::UID.from_name("manageiq")
+  end
+
+  def manageiq_gid
+    @manageiq_gid ||= Process::GID.from_name("manageiq")
   end
 end
