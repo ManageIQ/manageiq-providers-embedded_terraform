@@ -42,6 +42,15 @@ class ManageIQ::Providers::EmbeddedTerraform::AutomationManager::Stack < ManageI
     end
   end
 
+  def refresh
+    transaction do
+      self.status      = miq_task.state
+      self.start_time  = miq_task.started_on
+      self.finish_time = raw_status.completed? ? miq_task.updated_on : nil
+      save!
+    end
+  end
+
   def raw_status
     Status.new(miq_task, nil)
   end

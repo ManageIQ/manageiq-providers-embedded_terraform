@@ -62,6 +62,14 @@ class ServiceTerraformTemplate < ServiceGeneric
     service_resources.find_by(:name => action, :resource_type => 'OrchestrationStack').try(:resource)
   end
 
+  def refresh(action)
+    stack(action).refresh
+  end
+
+  def check_refreshed(_action)
+    [true, nil]
+  end
+
   private
 
   def get_job_options(action)
