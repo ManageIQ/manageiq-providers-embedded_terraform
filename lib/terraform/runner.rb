@@ -65,7 +65,7 @@ module Terraform
       private
 
       def server_url
-        ENV.fetch('TERRAFORM_RUNNER_URL', 'https://opentofu-runner:27000')
+        ENV.fetch('TERRAFORM_RUNNER_URL', 'https://opentofu-runner:6000')
       end
 
       def server_token
