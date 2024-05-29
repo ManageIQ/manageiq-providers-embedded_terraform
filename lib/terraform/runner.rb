@@ -165,7 +165,7 @@ module Terraform
       # encode zip of a template directory
       def encoded_zip_from_directory(template_path)
         dir_path = template_path # directory to be zipped
-        dir_path = path[0...-1] if dir_path.end_with?('/')
+        dir_path = dir_path[0...-1] if dir_path.end_with?('/')
 
         Tempfile.create(%w[opentofu-runner-payload .zip]) do |zip_file_path|
           _log.debug("Create #{zip_file_path}")

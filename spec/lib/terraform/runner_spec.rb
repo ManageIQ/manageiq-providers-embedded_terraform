@@ -76,6 +76,21 @@ RSpec.describe(Terraform::Runner) do
         expect(response.details).to(be_nil)
       end
 
+      it "handles trailing '/' in template path" do
+        async_response = Terraform::Runner.run_async(input_vars, File.join(__dir__, "runner/data/hello-world/"))
+        expect(create_stub).to(have_been_requested.times(1))
+
+        response = async_response.response
+        expect(retrieve_stub).to(have_been_requested.times(1))
+
+        expect(response.status).to(eq('IN_PROGRESS'), "terraform-runner failed with:\n#{response.status}")
+        expect(response.stack_id).to(eq(@hello_world_create_response['stack_id']))
+        expect(response.action).to(eq('CREATE'))
+        expect(response.stack_name).to(eq(@hello_world_create_response['stack_name']))
+        expect(response.message).to(be_nil)
+        expect(response.details).to(be_nil)
+      end
+
       it "is aliased as run" do
         expect(Terraform::Runner.method(:run)).to(eq(Terraform::Runner.method(:run_async)))
       end
