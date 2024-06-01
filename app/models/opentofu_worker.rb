@@ -74,10 +74,24 @@ class OpentofuWorker < MiqWorker
 
   def configure_service_worker_deployment(definition)
     super
-
+    # overwriting container port to be same as opentofu-runner service port i.e. in this case 6000
     definition[:spec][:template][:spec][:containers].first[:ports] = [{:containerPort => container_port}]
 
+    # ovewriting home directory to terraform home dir
+    env_var_array = definition[:spec][:template][:spec][:containers][0][:env]
+    env_var_array.detect { |env| env[:name] == "HOME" }&.[]=(:value, "/home/hode")
+
+    definition[:spec][:template][:spec][:containers].first[:securityContext][:runAsUser] = 1_000_690_001
+    # these volume mounts are require by terraform runner to create the stack, mentioned it as {} so that it can be writable
+    definition[:spec][:template][:spec][:containers].first[:volumeMounts] << {:name => "terraform-bin-empty", :mountPath => "/home/node/terraform/bin"}
+    definition[:spec][:template][:spec][:volumes] << {:name => "stacks-empty", :emptyDir => {}}
+    definition[:spec][:template][:spec][:containers].first[:volumeMounts] << {:name => "terraform-d-empty", :mountPath => "/home/node/terraform/.terraform.d"}
+    definition[:spec][:template][:spec][:volumes] << {:name => "terraform-bin-empty", :emptyDir => {}}
+    definition[:spec][:template][:spec][:containers].first[:volumeMounts] << {:name => "stacks-empty", :mountPath => "/stacks"}
+    definition[:spec][:template][:spec][:volumes] << {:name => "terraform-d-empty", :emptyDir => {}}
+
     if ENV["API_SSL_SECRET_NAME"].present?
+      # mounting secret for opentofu-runner SSL usage
       definition[:spec][:template][:spec][:containers].first[:volumeMounts] << {:name => "cert-path", :mountPath => "/opt/app-root/src/config/cert"}
       definition[:spec][:template][:spec][:volumes] << {:name => "cert-path", :secret => {:secretName => ENV["API_SSL_SECRET_NAME"], :items => [{:key => "tf_runner_crt", :path => "tls.crt"}, {:key => "tf_runner_key", :path => "tls.key"}], :defaultMode => 420}}
     end
