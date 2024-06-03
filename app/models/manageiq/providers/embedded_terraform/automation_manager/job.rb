@@ -21,13 +21,9 @@ class ManageIQ::Providers::EmbeddedTerraform::AutomationManager::Job < Job
   def execute
     template_path = File.join(options[:git_checkout_tempdir], template_relative_path)
     credentials   = Authentication.where(:id => options[:credentials])
+    extra_vars    = options.dig(:input_vars, :extra_vars) || {}
 
-    response = Terraform::Runner.run(
-      options[:input_vars],
-      template_path,
-      :credentials => credentials,
-      :env_vars    => options[:env_vars]
-    )
+    response = Terraform::Runner.run(decrypt_extra_vars(extra_vars), template_path, :credentials => credentials, :env_vars => options[:env_vars])
 
     options[:terraform_stack_id] = response.stack_id
     save!
@@ -108,6 +104,11 @@ class ManageIQ::Providers::EmbeddedTerraform::AutomationManager::Job < Job
     return if options[:terraform_stack_id].nil?
 
     @stack_response ||= Terraform::Runner::ResponseAsync.new(options[:terraform_stack_id])
+  end
+
+  def decrypt_extra_vars(extra_vars)
+    result = extra_vars.deep_dup
+    result.transform_values! { |val| val.kind_of?(String) ? ManageIQ::Password.try_decrypt(val) : val }
   end
 
   def configuration_script_source

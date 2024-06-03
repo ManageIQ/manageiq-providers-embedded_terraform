@@ -85,7 +85,7 @@ class ServiceTerraformTemplate < ServiceGeneric
     job_options[:extra_vars].try(:transform_values!) do |val|
       val.kind_of?(String) ? val : val[:default] # TODO: support Hash only
     end
-    # TODO: job_options.deep_merge!(parse_dialog_options) unless action == ResourceAction::RETIREMENT
+    job_options.deep_merge!(parse_dialog_options) unless action == ResourceAction::RETIREMENT
     job_options.deep_merge!(overrides)
     translate_credentials!(job_options)
 
@@ -95,6 +95,17 @@ class ServiceTerraformTemplate < ServiceGeneric
 
   def job_option_key(action)
     "#{action.downcase}_job_options".to_sym
+  end
+
+  def parse_dialog_options
+    dialog_options = options[:dialog] || {}
+
+    params = dialog_options.each_with_object({}) do |(attr, val), obj|
+      var_key = attr.sub(/^(password::)?dialog_/, '')
+      obj[var_key] = val
+    end
+
+    params.blank? ? {} : {:extra_vars => params}
   end
 
   def translate_credentials!(options)
