@@ -5,6 +5,9 @@ require 'base64'
 
 module Terraform
   class Runner
+    class Error < StandardError
+    end
+
     class << self
       def available?
         return @available if defined?(@available)
@@ -25,8 +28,8 @@ module Terraform
       # @param env_vars [Hash] Hash with key/value pairs that will be passed as environment variables to the
       #        terraform-runner run
       # @return [Terraform::Runner::ResponseAsync] Response object of terraform-runner create action
-      def run_async(input_vars, template_path, tags: nil, credentials: [], env_vars: {})
-        _log.debug("Run_aysnc template: #{template_path}")
+      # @raise [Terraform::Runner::Error] Raises an exception if runnign the template fails
+      def run!(input_vars, template_path, tags: nil, credentials: [], env_vars: {})
         response = create_stack_job(
           template_path,
           :input_vars  => input_vars,
@@ -34,19 +37,35 @@ module Terraform
           :credentials => credentials,
           :env_vars    => env_vars
         )
+
+        raise Terraform::Runner::Error, response.error_message if response.status == "FAILED"
+
         Terraform::Runner::ResponseAsync.new(response.stack_id)
       end
 
-      # To simplify clients who may just call run, we alias it to call
-      # run_async.  If we ever need run_sync, we'll need to revisit this.
-      alias run run_async
+      # Run a template, initiates terraform-runner job for running a template, via terraform-runner api
+      #
+      # @param input_vars [Hash] Hash with key/value pairs that will be passed as input variables to the
+      #        terraform-runner run
+      # @param template_path [String] Path to the template we will want to run
+      # @param tags [Hash] Hash with key/values pairs that will be passed as tags to the terraform-runner run
+      # @param credentials [Array] List of Authentication objects to provide to the terraform run
+      # @param env_vars [Hash] Hash with key/value pairs that will be passed as environment variables to the
+      #        terraform-runner run
+      # @return [Terraform::Runner::ResponseAsync, nil] Response object of terraform-runner create action, or nil on failure
+      def run(input_vars, template_path, tags: nil, credentials: [], env_vars: {})
+        run!(input_vars, template_path, :tags => tags, :credentials => credentials, :env_vars => env_vars)
+      rescue Terraform::Runner::Error => err
+        $embedded_terraform_log.error("Failed to run template [#{template_path}]: #{err}")
+        nil
+      end
 
       # Stop running terraform-runner job by stack_id
       #
       # @param stack_id [String] stack_id from the terraforn-runner job
       #
       # @return [Terraform::Runner::Response] Response object with result of terraform run
-      def stop_async(stack_id)
+      def stop(stack_id)
         cancel_stack_job(stack_id)
       end
 
@@ -55,7 +74,7 @@ module Terraform
       # @param stack_id [String] stack_id from the terraforn-runner job
       #
       # @return [Terraform::Runner::Response] Response object with result of terraform run
-      def fetch_result_by_stack_id(stack_id)
+      def status(stack_id)
         retrieve_stack_job(stack_id)
       end
 
@@ -120,7 +139,7 @@ module Terraform
         env_vars: {},
         name: "stack-#{rand(36**8).to_s(36)}"
       )
-        _log.info("start stack_job for template: #{template_path}")
+        $embedded_terraform_log.info("start stack_job for template: #{template_path}")
         tenant_id = stack_tenant_id
         encoded_zip_file = encoded_zip_from_directory(template_path)
 
@@ -137,8 +156,8 @@ module Terraform
           "api/stack/create",
           *json_post_arguments(payload)
         )
-        _log.debug("==== http_response.body: \n #{http_response.body}")
-        _log.info("stack_job for template: #{template_path} running ...")
+        $embedded_terraform_log.debug("==== http_response.body: \n #{http_response.body}")
+        $embedded_terraform_log.info("stack_job for template: #{template_path} running ...")
         Terraform::Runner::Response.parsed_response(http_response)
       end
 
@@ -148,7 +167,7 @@ module Terraform
           "api/stack/retrieve",
           *json_post_arguments({:stack_id => stack_id})
         )
-        _log.info("==== Retrieve Stack Response: \n #{http_response.body}")
+        $embedded_terraform_log.info("==== Retrieve Stack Response: \n #{http_response.body}")
         Terraform::Runner::Response.parsed_response(http_response)
       end
 
@@ -158,7 +177,7 @@ module Terraform
           "api/stack/cancel",
           *json_post_arguments({:stack_id => stack_id})
         )
-        _log.info("==== Cancel Stack Response: \n #{http_response.body}")
+        $embedded_terraform_log.info("==== Cancel Stack Response: \n #{http_response.body}")
         Terraform::Runner::Response.parsed_response(http_response)
       end
 
@@ -168,11 +187,11 @@ module Terraform
         dir_path = dir_path[0...-1] if dir_path.end_with?('/')
 
         Tempfile.create(%w[opentofu-runner-payload .zip]) do |zip_file_path|
-          _log.debug("Create #{zip_file_path}")
+          $embedded_terraform_log.debug("Create #{zip_file_path}")
           Zip::File.open(zip_file_path, Zip::File::CREATE) do |zipfile|
             Dir.chdir(dir_path)
             Dir.glob("**/*").select { |fn| File.file?(fn) }.each do |file|
-              _log.debug("Adding #{file}")
+              $embedded_terraform_log.debug("Adding #{file}")
               zipfile.add(file.sub("#{dir_path}/", ''), file)
             end
           end
