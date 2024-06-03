@@ -79,7 +79,7 @@ class OpentofuWorker < MiqWorker
 
     # ovewriting home directory to terraform home dir
     env_var_array = definition[:spec][:template][:spec][:containers][0][:env]
-    env_var_array.detect { |env| env[:name] == "HOME" }&.[]=(:value, "/home/hode")
+    env_var_array.detect { |env| env[:name] == "HOME" }&.[]=(:value, "/home/node")
 
     definition[:spec][:template][:spec][:containers].first[:securityContext][:runAsUser] = 1_000_690_001
     # these volume mounts are require by terraform runner to create the stack, mentioned it as {} so that it can be writable
