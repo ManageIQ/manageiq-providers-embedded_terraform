@@ -69,7 +69,7 @@ module Terraform
       end
 
       def server_token
-        ENV.fetch('TERRAFORM_RUNNER_TOKEN', nil)
+        @server_token ||= ENV.fetch('TERRAFORM_RUNNER_TOKEN', jwt_token)
       end
 
       def stack_job_interval_in_secs
@@ -178,6 +178,17 @@ module Terraform
           end
           Base64.encode64(File.binread(zip_file_path))
         end
+      end
+
+      def jwt_token
+        require "jwt"
+
+        payload = {'Username' => 'opentofu-runner'}
+        JWT.encode(payload, v2_key.key, 'HS256')
+      end
+
+      def v2_key
+        ManageIQ::Password.key
       end
     end
   end
