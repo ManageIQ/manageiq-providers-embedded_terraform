@@ -52,6 +52,6 @@ class ManageIQ::Providers::EmbeddedTerraform::AutomationManager::Stack < ManageI
   end
 
   def raw_status
-    Status.new(miq_task, nil)
+    Status.new(miq_task)
   end
 end

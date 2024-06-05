@@ -43,9 +43,12 @@ class ServiceTerraformTemplate < ServiceGeneric
   end
 
   def check_completed(action)
-    status  = stack(action).raw_status
-    done    = status.completed?
-    message = nil
+    status = stack(action).raw_status
+    done   = status.completed?
+
+    # If the stack is completed the message has to be nil otherwise the stack
+    # will get marked as failed
+    _, message = status.normalized_status unless status.succeeded?
     [done, message]
   rescue MiqException::MiqOrchestrationStackNotExistError, MiqException::MiqOrchestrationStatusError => err
     [true, err.message] # consider done with an error when exception is caught

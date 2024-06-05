@@ -1,8 +1,8 @@
 class ManageIQ::Providers::EmbeddedTerraform::AutomationManager::Stack::Status < OrchestrationStack::Status
   attr_accessor :task_status
 
-  def initialize(miq_task, reason)
-    super(miq_task.state, reason)
+  def initialize(miq_task)
+    super(miq_task.state, miq_task.message)
     self.task_status = miq_task.status
   end
 
