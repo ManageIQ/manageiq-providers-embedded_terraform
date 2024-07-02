@@ -82,6 +82,9 @@ class OpentofuWorker < MiqWorker
     env_var_array = definition[:spec][:template][:spec][:containers][0][:env]
     env_var_array.detect { |env| env[:name] == "HOME" }&.[]=(:value, "/home/node")
 
+    definition[:spec][:template][:spec][:containers][0][:env] << {:name => "LOG4JS_LEVEL", :value => "info"}
+    definition[:spec][:template][:spec][:containers][0][:env] << {:name => "AIRGAP_OFFLINE", :value => "false"}
+
     # these volume mounts are require by terraform runner to create the stack, mentioned it as {} so that it can be writable
     definition[:spec][:template][:spec][:containers].first[:volumeMounts] << {:name => "terraform-bin-empty", :mountPath => "/home/node/terraform/bin"}
     definition[:spec][:template][:spec][:volumes] << {:name => "stacks-empty", :emptyDir => {}}
