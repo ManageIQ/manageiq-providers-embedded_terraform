@@ -5,6 +5,11 @@ class OpentofuWorker < MiqWorker
   self.rails_worker          = false
   self.maximum_workers_count = 1
 
+  self.worker_settings_paths = [
+    %i[log level_embedded_terraform],
+    %i[workers worker_base opentofu_worker]
+  ]
+
   OPENTOFU_RUNTIME_DIR = "/var/lib/manageiq/opentofu-runner".freeze
   SERVICE_PORT = 6000
 
@@ -69,7 +74,9 @@ class OpentofuWorker < MiqWorker
       "DATABASE_USERNAME"     => database_configuration[:username],
       "MEMCACHE_SERVERS"      => ::Settings.session.memcache_server,
       "PORT"                  => container_port,
-      "OPENTOFU_RUNNER_IMAGE" => container_image
+      "OPENTOFU_RUNNER_IMAGE" => container_image,
+      "LOG4JS_LEVEL"          => ::Settings.log.level_embedded_terraform,
+      "TF_OFFLINE"            => worker_settings[:opentofu_offline]
     }
   end
 
@@ -81,6 +88,9 @@ class OpentofuWorker < MiqWorker
     # ovewriting home directory to terraform home dir
     env_var_array = definition[:spec][:template][:spec][:containers][0][:env]
     env_var_array.detect { |env| env[:name] == "HOME" }&.[]=(:value, "/home/node")
+
+    definition[:spec][:template][:spec][:containers][0][:env] << {:name => "LOG4JS_LEVEL", :value => Settings.log.level_embedded_terraform}
+    definition[:spec][:template][:spec][:containers][0][:env] << {:name => "TF_OFFLINE", :value => worker_settings[:opentofu_offline]}
 
     # these volume mounts are require by terraform runner to create the stack, mentioned it as {} so that it can be writable
     definition[:spec][:template][:spec][:containers].first[:volumeMounts] << {:name => "terraform-bin-empty", :mountPath => "/home/node/terraform/bin"}
