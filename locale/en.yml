@@ -3,4 +3,6 @@ en:
     model:
       ManageIQ::Providers::EmbeddedTerraform::AutomationManager::ConfigurationScriptSource:  Repository (Embedded Terraform)
       ManageIQ::Providers::EmbeddedTerraform::AutomationManager::Credential:                 Credential (Embedded Terraform)
+      ManageIQ::Providers::EmbeddedTerraform::AutomationManager::ScmCredential:              Credential (SCM)
+      ManageIQ::Providers::EmbeddedTerraform::AutomationManager::AmazonCredential:           Credential (Amazon)
       ManageIQ::Providers::EmbeddedTerraform::AutomationManager::Template:                   Template (Embedded Terraform)
