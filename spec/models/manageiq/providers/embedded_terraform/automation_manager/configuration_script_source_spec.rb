@@ -82,7 +82,7 @@ RSpec.describe(ManageIQ::Providers::EmbeddedTerraform::AutomationManager::Config
         names = names_and_payloads.collect(&:first)
         payloads = names_and_payloads.collect(&:second)
 
-        expect(names.first).to(eq("hello_world_local(master):#{local_repo}/"))
+        expect(names.first).to(eq("/hello_world_local"))
 
         expected_hash = {
           "relative_path" => File.dirname(*repo_dir_structure),
@@ -114,7 +114,7 @@ RSpec.describe(ManageIQ::Providers::EmbeddedTerraform::AutomationManager::Config
           names = names_and_payloads.collect(&:first)
           payloads = names_and_payloads.collect(&:second)
 
-          expect(names.first).to(eq("hello-world(master):#{nested_repo}/templates"))
+          expect(names.first).to(eq("templates/hello-world"))
 
           expected_hash = {
             "relative_path" => File.dirname(*nested_repo_structure),
@@ -167,8 +167,8 @@ RSpec.describe(ManageIQ::Providers::EmbeddedTerraform::AutomationManager::Config
           expect(names).to(
             eq(
               [
-                "hello-world(master):#{multiple_templates_repo}/templates",
-                "single-vm(master):#{multiple_templates_repo}/templates"
+                "templates/hello-world",
+                "templates/single-vm"
               ]
             )
           )
@@ -213,7 +213,7 @@ RSpec.describe(ManageIQ::Providers::EmbeddedTerraform::AutomationManager::Config
           names = names_and_payloads.collect(&:first)
           payloads = names_and_payloads.collect(&:second)
 
-          expect(names.first).to(eq("hello-world(master):#{nested_repo}/templates"))
+          expect(names.first).to(eq("templates/hello-world"))
 
           files = JSON.parse(payloads.first)["files"]
 
@@ -241,15 +241,15 @@ RSpec.describe(ManageIQ::Providers::EmbeddedTerraform::AutomationManager::Config
           record           = build_record
 
           names = record.configuration_script_payloads.pluck(:name)
-          expect(names).to(match_array(["hello-world(master):#{nested_repo}/templates"]))
+          expect(names).to(match_array(["templates/hello-world"]))
         end
       end
     end
 
     describe "#template_name_from_git_repo_url" do
-      let(:git_url_branch_path)   { ["git@example.com:manoj-puthran/sample-scripts.git", "v2.0", "terraform/templates/hello-world"] }
-      let(:https_url_branch_path) { ["https://example.com/manoj-puthran/sample-scripts.git", "v2.0", "terraform/templates/hello-world"] }
-      let(:expected_result)       { "hello-world(v2.0):example.com/manoj-puthran/sample-scripts/terraform/templates" }
+      let(:git_url_branch_path)   { ["git@example.com:manoj-puthran/sample-scripts.git", "terraform/templates/hello-world"] }
+      let(:https_url_branch_path) { ["https://example.com/manoj-puthran/sample-scripts.git", "terraform/templates/hello-world"] }
+      let(:expected_result)       { "terraform/templates/hello-world" }
 
       it "supports https urls" do
         expect(described_class.template_name_from_git_repo_url(*https_url_branch_path)).to(eq(expected_result))
@@ -279,7 +279,7 @@ RSpec.describe(ManageIQ::Providers::EmbeddedTerraform::AutomationManager::Config
           names = names_and_payloads.collect(&:first)
           payloads = names_and_payloads.collect(&:second)
 
-          expect(names.first).to(eq("hello_world_local(other_branch):#{local_repo}/"))
+          expect(names.first).to(eq("/hello_world_local"))
 
           expected_hash = {
             "relative_path" => File.dirname(*repo_dir_structure),
