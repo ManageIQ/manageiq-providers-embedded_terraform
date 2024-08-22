@@ -25,6 +25,10 @@ class OpentofuWorker < MiqWorker
     MiqWorkerType::KILL_PRIORITY_GENERIC_WORKERS
   end
 
+  def self.start_worker(*params)
+    create_worker_record(*params).tap(&:start)
+  end
+
   def worker_deployment_name
     @worker_deployment_name ||= "#{deployment_prefix}opentofu-runner"
   end
