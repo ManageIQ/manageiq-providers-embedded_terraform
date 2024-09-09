@@ -3,6 +3,8 @@ class ManageIQ::Providers::EmbeddedTerraform::AutomationManager::Stack < ManageI
   belongs_to :configuration_script_payload, :foreign_key => :configuration_script_base_id, :class_name => "ManageIQ::Providers::EmbeddedTerraform::AutomationManager::Template", :inverse_of => :stacks
   belongs_to :miq_task,                     :foreign_key => :ems_ref,                      :inverse_of => false
 
+  virtual_has_many :job_plays
+
   class << self
     alias create_job     create_stack
     alias raw_create_job raw_create_stack
@@ -24,6 +26,43 @@ class ManageIQ::Providers::EmbeddedTerraform::AutomationManager::Stack < ManageI
         :status                       => miq_task&.state,
         :start_time                   => miq_task&.started_on
       )
+    end
+
+    def raw_stdout_via_worker(userid, format = 'txt')
+      unless MiqRegion.my_region.role_active?("embedded_terraform")
+        msg = "Cannot get standard output of this terraform because the embedded Terraform role is not enabled"
+        return MiqTask.create(
+          :name    => 'terraform_stdout',
+          :userid  => userid || 'system',
+          :state   => MiqTask::STATE_FINISHED,
+          :status  => MiqTask::STATUS_ERROR,
+          :message => msg
+        ).id
+      end
+
+      options = {:userid => userid || 'system', :action => 'terraform_stdout'}
+      queue_options = {
+        :class_name  => self.class,
+        :method_name => 'raw_stdout',
+        :instance_id => id,
+        :args        => [format],
+        :priority    => MiqQueue::HIGH_PRIORITY,
+        :role        => nil
+      }
+
+     MiqTask.generic_action_with_callback(options, queue_options)
+    end
+
+    def job_plays
+      resources.where(:resource_category => 'job_play').order(:start_time)
+    end
+
+    def raw_stdout(format = 'txt')
+      case format
+      when "json" then raw_stdout_json
+      when "html" then raw_stdout_html
+      else             raw_stdout_txt
+      end
     end
 
     def raw_create_stack(terraform_template, options = {})
@@ -49,9 +88,36 @@ class ManageIQ::Providers::EmbeddedTerraform::AutomationManager::Stack < ManageI
       self.finish_time = raw_status.completed? ? miq_task.updated_on : nil
       save!
     end
+    update_plays
+  end
+
+  def update_plays
+    tasks = miq_task.try(&:context_data).try(:[], :terraform_response)
+    options = {
+      :name              => tasks[:stack_name],
+      :ems_ref           => tasks[:stack_id],
+      :resource_status   => tasks[:status],
+      :start_time        => tasks[:stack_job_start_time],
+      :finish_time       => tasks[:stack_job_end_time],
+      :stack_id          => self.id,
+      :resource_category => "job_play"
+    }
+    resource = OrchestrationStackResource.new(options)
+    resource.save
   end
 
   def raw_status
     Status.new(miq_task)
+  end
+
+  def raw_stdout_json
+    miq_task.try(&:context_data).try(:[], :terraform_response).try(:[], :message) || []
+  end
+
+
+  def raw_stdout_html
+    text = raw_stdout_json
+    text = _("No output available") if text.blank?
+    TerminalToHtml.render(text)
   end
 end
