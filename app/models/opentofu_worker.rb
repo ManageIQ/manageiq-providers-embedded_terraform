@@ -49,6 +49,13 @@ class OpentofuWorker < MiqWorker
     }
   end
 
+  # The opentofu-runner pod is a service worker but isn't scalable so the
+  # stop_container method should delete_container_objects like a deployment-per-worker
+  # not scale_deployment like a service_worker.
+  def stop_container
+    delete_container_objects
+  end
+
   private
 
   # There can only be a single instance running so the unit name can just be
