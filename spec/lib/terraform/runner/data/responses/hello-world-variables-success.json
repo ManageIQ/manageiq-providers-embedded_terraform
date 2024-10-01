@@ -1,0 +1,25 @@
+{
+    "template_input_params": [
+      {
+        "name": "name",
+        "label": "name",
+        "type": "string",
+        "description": "",
+        "required": true,
+        "secured": false,
+        "hidden": false,
+        "immutable": false,
+        "default": "World"
+      }
+    ],
+    "template_output_params": [
+      {
+        "name": "greeting",
+        "label": "greeting",
+        "description": "",
+        "secured": false,
+        "hidden": false
+      }
+    ],
+    "terraform_version": ">= 1.1.0"
+  }

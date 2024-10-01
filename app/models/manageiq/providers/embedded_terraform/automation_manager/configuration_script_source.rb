@@ -37,7 +37,7 @@ class ManageIQ::Providers::EmbeddedTerraform::AutomationManager::ConfigurationSc
     update!(:status => "successful", :last_updated_on => Time.zone.now, :last_update_error => nil)
   rescue => error
     update!(:status => "error", :last_updated_on => Time.zone.now, :last_update_error => error)
-    raise error
+    raise
   end
 
   # Return Template name, using relative_path's basename prefix,
@@ -75,8 +75,10 @@ class ManageIQ::Providers::EmbeddedTerraform::AutomationManager::ConfigurationSc
   def find_templates_in_git_repo
     template_dirs = {}
 
+    # checkout repo, for sending files to terraform-runner to parse for input/ouput vars.
+    git_checkout_tempdir = checkout_git_repo
+
     # traverse through files in git-worktree
-    git_repository.update_repo
     git_repository.with_worktree do |worktree|
       worktree.ref = scm_branch
 
@@ -85,22 +87,53 @@ class ManageIQ::Providers::EmbeddedTerraform::AutomationManager::ConfigurationSc
               .group_by          { |file| File.dirname(file) }
               .select            { |_dir, files| files.any? { |f| f.end_with?(".tf", ".tf.json") } }
               .transform_values! { |files| files.map { |f| File.basename(f) } }
-              .each do |parent_dir, files|
-        name = self.class.template_name_from_git_repo_url(git_repository.url, parent_dir)
+              .each do |relative_path, files|
+        name = self.class.template_name_from_git_repo_url(git_repository.url, relative_path)
 
-        # TODO: add parsing for input/output vars
-        input_vars  = nil
-        output_vars = nil
+        template_full_path = File.join(git_checkout_tempdir, relative_path)
+
+        input_vars, output_vars, terraform_version = parse_vars_in_template(template_full_path)
 
         template_dirs[name] = {
-          :relative_path => parent_dir,
-          :files         => files,
-          :input_vars    => input_vars,
-          :output_vars   => output_vars
+          :relative_path     => relative_path,
+          :files             => files,
+          :input_vars        => input_vars,
+          :output_vars       => output_vars,
+          :terraform_version => terraform_version,
         }
       end
     end
 
     template_dirs
+  rescue => error
+    _log.error("Failing scaning for terraform templates in the git repo: #{error}")
+    raise
+  ensure
+    cleanup_git_repo(git_checkout_tempdir)
+  end
+
+  # Parse template and return input-vars, output-vars & terraform-version
+  def parse_vars_in_template(template_path)
+    response = Terraform::Runner.parse_template_variables(template_path)
+    return response['template_input_params'], response['template_output_params'], response['terraform_version']
+  end
+
+  # checkout git repo to temp dir
+  def checkout_git_repo
+    git_checkout_tempdir = Dir.mktmpdir("embedded-terraform-runner-git")
+
+    _log.debug("Checking out git repository to #{git_checkout_tempdir}...")
+    checkout_git_repository(git_checkout_tempdir)
+    git_checkout_tempdir
+  end
+
+  # clean temp dir
+  def cleanup_git_repo(git_checkout_tempdir)
+    return if git_checkout_tempdir.nil?
+
+    _log.debug("Cleaning up git repository checked out at #{git_checkout_tempdir}...")
+    FileUtils.rm_rf(git_checkout_tempdir)
+  rescue Errno::ENOENT
+    nil
   end
 end
