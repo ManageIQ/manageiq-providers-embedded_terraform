@@ -69,6 +69,26 @@ class ServiceTerraformTemplate < ServiceGeneric
     stack(action).refresh
   end
 
+  def on_error(action)
+    _log.info("on_error called for service action: #{action}")
+    update(:retirement_state => 'error') if action == "Retirement"
+    if job(action)
+      stack(action).try(:refresh)
+      postprocess(action)
+    else
+      _log.info("postprocess not called because job was nil")
+    end
+  end
+
+  def postprocess(action)
+    log_stdout(action)
+  end
+
+
+   def job(action)
+     service_resources.find_by(:name => action, :resource_type => 'OrchestrationStack').try(:resource)
+   end
+
   def check_refreshed(_action)
     [true, nil]
   end
@@ -116,5 +136,30 @@ class ServiceTerraformTemplate < ServiceGeneric
 
     credential_id = options.delete(:credential_id)
     options[:credentials] << Authentication.find(credential_id).native_ref if credential_id.present?
+  end
+
+  def log_stdout(action)
+    log_option = options.fetch_path(:config_info, action.downcase.to_sym, :log_output) || 'on_error'
+    job = job(action)
+    if job.nil?
+      $log.info("No stdout available due to missing job")
+    else
+      terraform_log_stdout(log_option, job)
+    end
+  end
+
+  def terraform_log_stdout(log_option, job)
+    raise ArgumentError, "invalid job object" if job.nil?
+    return unless %(on_error always).include?(log_option)
+    return if log_option == 'on_error' && job.raw_status.succeeded?
+
+    $log.info("Stdout from ansible job #{job.name}: #{job.raw_stdout('txt_download')}")
+  rescue StandardError => err
+    if job.nil?
+      $log.error("Job was nil, must pass a valid job")
+    else
+      $log.error("Failed to get stdout from ansible job #{job.name}")
+    end
+    $log.log_backtrace(err)
   end
 end

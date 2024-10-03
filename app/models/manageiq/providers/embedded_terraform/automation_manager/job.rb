@@ -15,7 +15,7 @@ class ManageIQ::Providers::EmbeddedTerraform::AutomationManager::Job < Job
 
   def pre_execute
     checkout_git_repository
-    signal(:execute)
+    route_signal(:execute)
   end
 
   def execute
@@ -27,26 +27,63 @@ class ManageIQ::Providers::EmbeddedTerraform::AutomationManager::Job < Job
 
     options[:terraform_stack_id] = response.stack_id
     save!
-
-    queue_poll_runner
+    route_signal(:poll_runner)
+    #queue_poll_runner
   end
 
   def poll_runner
     if running?
       queue_poll_runner
     else
-      signal(:post_execute)
+      logs_update
+      route_signal(:post_execute)
     end
   end
 
   def post_execute
-    cleanup_git_repository
-
+    
+    #cleanup_git_repository
+    
     return queue_signal(:finish, message, status) if success?
-
+    #queue_signal(:finish, message, status)
+    return queue_signal(:abort, "Failed to run ansible", "error") unless success?
     _log.error("Failed to run template: [#{error_message}]")
-
+    
     abort_job("Failed to run template", "error")
+  end
+
+  def logs_update
+    terraform_response = {
+      stack_id: stack_response&.response&.stack_id,
+      stack_name: stack_response&.response&.stack_name,
+      status: stack_response&.response&.status,
+      stack_job_end_time: stack_response&.response&.stack_job_end_time,
+      stack_job_start_time: stack_response&.response&.stack_job_start_time,
+      created_at: stack_response&.response&.created_at,
+      message: stack_response&.response&.message,
+      error_message: stack_response&.response&.error_message
+    }
+
+    miq_task.context_data ||= {}
+    miq_task.context_data[:terraform_response] = terraform_response
+    context[:terraform_response] = terraform_response
+    
+    update!(:context => context, :started_on => context[:terraform_response][:stack_job_start_time])
+    miq_task.update(context_data: miq_task.context_data)
+  end
+
+  def queue_signal(*args, deliver_on: nil, msg_timeout: nil)
+    role     = options[:role] || "ems_operations"
+    priority = options[:priority] || MiqQueue::NORMAL_PRIORITY
+    super(*args, :msg_timeout => msg_timeout, :priority => priority, :role => role, :deliver_on => deliver_on, :server_guid => MiqServer.my_server.guid)
+  end
+
+  def route_signal(*args, deliver_on: nil)
+    if MiqEnvironment::Command.is_podified?
+      signal(*args)
+    else
+      queue_signal(*args, :deliver_on => deliver_on)
+    end
   end
 
   alias initializing dispatch_start
