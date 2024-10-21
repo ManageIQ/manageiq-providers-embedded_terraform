@@ -54,4 +54,61 @@ class ManageIQ::Providers::EmbeddedTerraform::AutomationManager::Stack < ManageI
   def raw_status
     Status.new(miq_task)
   end
+
+  # Intend to be called by UI to display stdout. The stdout is stored in TerraformRunner(api/stack#message)
+  def raw_stdout_via_worker(userid, format = 'txt')
+    unless MiqRegion.my_region.role_active?("embedded_terraform")
+      msg = "Cannot get standard output of this terraform-template because the embedded terraform role is not enabled"
+      return MiqTask.create(
+        :name    => 'terraform_stdout',
+        :userid  => userid || 'system',
+        :state   => MiqTask::STATE_FINISHED,
+        :status  => MiqTask::STATUS_ERROR,
+        :message => msg
+      ).id
+    end
+
+    options = {:userid => userid || 'system', :action => 'terraform_stdout'}
+    queue_options = {
+      :class_name  => self.class,
+      :method_name => 'raw_stdout',
+      :instance_id => id,
+      :args        => [format],
+      :priority    => MiqQueue::HIGH_PRIORITY,
+      :role        => nil
+    }
+
+    MiqTask.generic_action_with_callback(options, queue_options)
+  end
+
+  def raw_stdout(format = 'txt')
+    case format
+    when "html" then raw_stdout_html
+    else             raw_stdout_txt
+    end
+  end
+
+  def raw_stdout_txt
+    data = terraform_runner_stack_data
+    data&.message
+  end
+
+  def raw_stdout_html
+    text = raw_stdout_txt
+    text = _("No output available") if text.blank?
+    TerminalToHtml.render(text)
+  end
+
+  private
+
+  def terraform_runner_stack_data
+    return if miq_task.nil? || miq_task.job.nil?
+
+    job = miq_task.job
+    terraform_stack_id = job.options[:terraform_stack_id]
+
+    return if terraform_stack_id.blank?
+
+    Terraform::Runner.fetch_result_by_stack_id(terraform_stack_id)
+  end
 end
