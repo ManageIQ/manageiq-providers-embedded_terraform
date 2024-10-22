@@ -9,13 +9,20 @@ class Dialog
       Dialog.new(:label => label, :buttons => "submit,cancel").tap do |dialog|
         tab = dialog.dialog_tabs.build(:display => "edit", :label => "Basic Information", :position => 0)
         position = 0
-        if terraform_template.present?
-          add_template_variables_group(tab, position, terraform_template)
+        if terraform_template.present? && add_template_variables_group(tab, position, terraform_template)
           position += 1
         end
         if extra_vars.present?
           add_variables_group(tab, position, extra_vars)
+          position += 1
         end
+
+        if position == 0
+          # if not template input vars & no extra_vars,
+          # then add single variable text box as place-holder
+          add_variables_group(tab, position, {:name => {:default => label}})
+        end
+
         dialog.save!
       end
     end
@@ -27,7 +34,7 @@ class Dialog
       template_info = JSON.parse(terraform_template.payload)
       input_vars = template_info["input_vars"]
 
-      return if input_vars.nil?
+      return if input_vars.blank?
 
       tab.dialog_groups.build(
         :display  => "edit",
@@ -53,7 +60,7 @@ class Dialog
     def add_variables_group(tab, position, extra_vars)
       tab.dialog_groups.build(
         :display  => "edit",
-        :label    => "Extra Variables",
+        :label    => "Variables",
         :position => position
       ).tap do |dialog_group|
         extra_vars.transform_values { |val| val[:default] }.each_with_index do |(key, value), index|
