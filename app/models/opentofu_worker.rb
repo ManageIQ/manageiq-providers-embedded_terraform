@@ -78,30 +78,32 @@ class OpentofuWorker < MiqWorker
     create_podman_secret
   end
 
-  def unit_environment_variables
+  def environment_variables
+    super.merge(
+      "PORT"         => container_port.to_s,
+      "LOG4JS_LEVEL" => ::Settings.log.level_embedded_terraform,
+      "TF_OFFLINE"   => worker_settings[:opentofu_offline].to_s
+    )
+  end
+
+  def systemd_environment_variables
     {
       "DATABASE_HOSTNAME"     => database_configuration[:host],
       "DATABASE_NAME"         => database_configuration[:database],
       "DATABASE_USERNAME"     => database_configuration[:username],
       "MEMCACHE_SERVERS"      => ::Settings.session.memcache_server,
-      "PORT"                  => container_port,
-      "OPENTOFU_RUNNER_IMAGE" => container_image,
-      "LOG4JS_LEVEL"          => ::Settings.log.level_embedded_terraform,
-      "TF_OFFLINE"            => worker_settings[:opentofu_offline]
+      "OPENTOFU_RUNNER_IMAGE" => container_image
     }
+  end
+
+  def container_environment_variables
+    super.merge("HOME" => "/home/node")
   end
 
   def configure_service_worker_deployment(definition)
     super
     # overwriting container port to be same as opentofu-runner service port i.e. in this case 6000
     definition[:spec][:template][:spec][:containers].first[:ports] = [{:containerPort => container_port}]
-
-    # ovewriting home directory to terraform home dir
-    env_var_array = definition[:spec][:template][:spec][:containers][0][:env]
-    env_var_array.detect { |env| env[:name] == "HOME" }&.[]=(:value, "/home/node")
-
-    definition[:spec][:template][:spec][:containers][0][:env] << {:name => "LOG4JS_LEVEL", :value => Settings.log.level_embedded_terraform}
-    definition[:spec][:template][:spec][:containers][0][:env] << {:name => "TF_OFFLINE", :value => worker_settings[:opentofu_offline].to_s}
 
     # these volume mounts are require by terraform runner to create the stack, mentioned it as {} so that it can be writable
     definition[:spec][:template][:spec][:containers].first[:volumeMounts] << {:name => "terraform-bin-empty", :mountPath => "/home/node/terraform/bin"}

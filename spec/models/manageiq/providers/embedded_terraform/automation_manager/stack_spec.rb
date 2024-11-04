@@ -43,15 +43,7 @@ RSpec.describe ManageIQ::Providers::EmbeddedTerraform::AutomationManager::Stack 
       end
       let(:miq_task) { FactoryBot.create(:miq_task, :job => job) }
 
-      let(:job) do
-        ManageIQ::Providers::EmbeddedTerraform::AutomationManager::Job.create_job(template, {}, {}, []).tap do |job|
-          job.state = "finished"
-          job.options = {
-            :terraform_stack_id => hello_world_retrieve_response['stack_id']
-          }
-        end
-      end
-
+      let(:job) { FactoryBot.create(:embedded_terraform_job, :state => "finished", :options => {:terraform_stack_id => hello_world_retrieve_response['stack_id']})}
       let(:terraform_runner_stdout) { hello_world_retrieve_response['message'] }
       let(:terraform_runner_stdout_html) { TerminalToHtml.render(terraform_runner_stdout) }
 
@@ -118,13 +110,7 @@ RSpec.describe ManageIQ::Providers::EmbeddedTerraform::AutomationManager::Stack 
     end
 
     context "when miq_task.job.options present but missing terraform_stack_id" do
-      let(:job) do
-        ManageIQ::Providers::EmbeddedTerraform::AutomationManager::Job.create_job(template, {}, {}, []).tap do |job|
-          job.state = "waiting_to_start"
-          job.options = {}
-        end
-      end
-
+      let(:job)      { FactoryBot.create(:embedded_terraform_job) }
       let(:miq_task) { FactoryBot.create(:miq_task, :job => job) }
 
       it_behaves_like "terraform runner stdout not available from miq_task"
