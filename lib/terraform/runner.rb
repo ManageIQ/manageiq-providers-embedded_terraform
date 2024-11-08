@@ -15,33 +15,58 @@ module Terraform
         @available = false
       end
 
-      # Run a template, initiates terraform-runner job for running a template, via terraform-runner api
+      # Provision or Create (terraform apply) stack in terraform-runner from a terraform template.
       #
-      # @param input_vars [Hash] Hash with key/value pairs that will be passed as input variables to the
-      #        terraform-runner run
-      # @param template_path [String] Path to the template we will want to run
-      # @param tags [Hash] Hash with key/values pairs that will be passed as tags to the terraform-runner run
-      # @param credentials [Array] List of Authentication objects to provide to the terraform run
-      # @param env_vars [Hash] Hash with key/value pairs that will be passed as environment variables to the
-      #        terraform-runner run
-      # @return [Terraform::Runner::ResponseAsync] Response object of terraform-runner create action
-      def run_async(input_vars, template_path, tags: nil, credentials: [], env_vars: {})
-        _log.debug("Run_aysnc template: #{template_path}")
-        response = create_stack_job(
-          template_path,
-          :input_vars  => input_vars,
-          :tags        => tags,
-          :credentials => credentials,
-          :env_vars    => env_vars
-        )
-        Terraform::Runner::ResponseAsync.new(response.stack_id)
+      # @param template_path [String] (required) path to the terraform template directory.
+      # @param input_vars    [Hash]   (optional) key/value pairs as input variables for the terraform-runner run job.
+      # @param tags          [Hash]   (optional) key/value pairs tags for terraform-runner Provisioned resources.
+      # @param credentials   [Array]  (optional) List of Authentication objects for the terraform run job.
+      # @param env_vars      [Hash]   (optional) key/value pairs used as environment variables, for terraform-runner run job.
+      #
+      # @return [Terraform::Runner::ResponseAsync] Response object of terraform-runner api call
+      def create_stack(template_path, input_vars: {}, tags: nil, credentials: [], env_vars: {})
+        _log.debug("Run_aysnc/create_stack for template: #{template_path}")
+        if template_path.present?
+          response = create_stack_job(
+            template_path,
+            :input_vars  => input_vars,
+            :tags        => tags,
+            :credentials => credentials,
+            :env_vars    => env_vars
+          )
+          Terraform::Runner::ResponseAsync.new(response.stack_id)
+        else
+          raise "'template_path' is required for #{ResourceAction::Provision} action"
+        end
       end
 
-      # To simplify clients who may just call run, we alias it to call
-      # run_async.  If we ever need run_sync, we'll need to revisit this.
-      alias run run_async
+      # Retire or Delete(terraform destroy) the terraform-runner created stack resources.
+      #
+      # @param stack_id      [String] (optional) required, if running ResourceAction::RETIREMENT action, used by Terraform-Runner stack_delete job.
+      # @param template_path [String] (required) path to the terraform template directory.
+      # @param input_vars    [Hash]   (optional) key/value pairs as input variables for the terraform-runner run job.
+      # @param credentials   [Array]  (optional) List of Authentication objects for the terraform run job.
+      # @param env_vars      [Hash]   (optional) key/value pairs used as environment variables, for terraform-runner run job.
+      #
+      # @return [Terraform::Runner::ResponseAsync] Response object of terraform-runner api call
+      def delete_stack(stack_id, template_path, input_vars: {}, credentials: [], env_vars: {})
+        if stack_id.present? && template_path.present?
+          _log.debug("Run_aysnc/delete_stack('#{stack_id}') for template: #{template_path}")
+          response = delete_stack_job(
+            stack_id,
+            template_path,
+            :input_vars  => input_vars,
+            :credentials => credentials,
+            :env_vars    => env_vars
+          )
+          Terraform::Runner::ResponseAsync.new(response.stack_id)
+        else
+          _log.error("'stack_id' && 'template_path' are required for #{ResourceAction::RETIREMENT} action")
+          raise "'stack_id' && 'template_path' are required for #{ResourceAction::RETIREMENT} action"
+        end
+      end
 
-      # Stop running terraform-runner job by stack_id
+      # Stop running terraform-runner job, by stack_id
       #
       # @param stack_id [String] stack_id from the terraforn-runner job
       #
@@ -50,14 +75,20 @@ module Terraform
         cancel_stack_job(stack_id)
       end
 
-      # Fetch terraform-runner job result/status by stack_id
+      # To simplify clients who want to stop a running stack job, we alias it to call stop_async
+      alias stop_stack stop_async
+
+      # Fetch stack object(with result/status), by stack_id from terraform-runner
       #
-      # @param stack_id [String] stack_id from the terraforn-runner job
+      # @param stack_id [String] stack_id for the terraforn-runner stack job
       #
       # @return [Terraform::Runner::Response] Response object with result of terraform run
       def fetch_result_by_stack_id(stack_id)
         retrieve_stack_job(stack_id)
       end
+
+      # To simplify clients who want to fetch stack object from terraform-runner
+      alias stack fetch_result_by_stack_id
 
       # Parse Terraform Template input/output variables
       # @param template_path [String] Path to the template we will want to parse for input/output variables
@@ -122,7 +153,7 @@ module Terraform
       # Create TerraformRunner Stack Job
       def create_stack_job(
         template_path,
-        input_vars: [],
+        input_vars: {},
         tags: nil,
         credentials: [],
         env_vars: {},
@@ -143,6 +174,37 @@ module Terraform
 
         http_response = terraform_runner_client.post(
           "api/stack/create",
+          *json_post_arguments(payload)
+        )
+        _log.debug("==== http_response.body: \n #{http_response.body}")
+        _log.info("stack_job for template: #{template_path} running ...")
+        Terraform::Runner::Response.parsed_response(http_response)
+      end
+
+      # Delete(destroy) stack created by TerraformRunner Stack Job
+      def delete_stack_job(
+        stack_id,
+        template_path,
+        input_vars: {},
+        credentials: [],
+        env_vars: {}
+      )
+        _log.info("start stack_job for template: #{template_path}")
+        tenant_id = stack_tenant_id
+        encoded_zip_file = encoded_zip_from_directory(template_path)
+
+        # TODO: use tags,env_vars
+        payload = {
+          :stack_id        => stack_id,
+          :cloud_providers => provider_connection_parameters(credentials),
+          :name            => name,
+          :tenantId        => tenant_id,
+          :templateZipFile => encoded_zip_file,
+          :parameters      => ApiParams.to_cam_parameters(input_vars)
+        }
+
+        http_response = terraform_runner_client.post(
+          "api/stack/delete",
           *json_post_arguments(payload)
         )
         _log.debug("==== http_response.body: \n #{http_response.body}")

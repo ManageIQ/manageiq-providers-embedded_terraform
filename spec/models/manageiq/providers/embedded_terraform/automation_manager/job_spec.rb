@@ -1,21 +1,43 @@
 RSpec.describe ManageIQ::Providers::EmbeddedTerraform::AutomationManager::Job do
   let(:template)    { FactoryBot.create(:terraform_template) }
-  let(:job)         { described_class.create_job(template, env_vars, input_vars, credentials).tap { |job| job.state = state} }
+  let(:job)         { described_class.create_job(template, env_vars, input_vars, credentials).tap { |job| job.state = state } }
   let(:state)       { "waiting_to_start" }
   let(:env_vars)    { {} }
-  let(:input_vars)  { {} }
+  let(:input_vars)  { {:extra_vars => {}} }
   let(:credentials) { [] }
+  let(:terraform_stack_id) { '999-999-999-999' }
 
   describe ".create_job" do
     it "create a job" do
       expect(described_class.create_job(template, env_vars, input_vars, credentials)).to have_attributes(
         :type    => "ManageIQ::Providers::EmbeddedTerraform::AutomationManager::Job",
         :options => {
-          :template_id   => template.id,
-          :env_vars      => env_vars,
-          :input_vars    => input_vars,
-          :credentials   => credentials,
-          :poll_interval => 60
+          :template_id        => template.id,
+          :env_vars           => env_vars,
+          :input_vars         => input_vars,
+          :credentials        => credentials,
+          :poll_interval      => 60,
+          :action             => ResourceAction::PROVISION,
+          :terraform_stack_id => nil
+        }
+      )
+    end
+
+    it "create a job for Retirement action" do
+      expect(
+        described_class.create_job(
+          template, env_vars, input_vars, credentials, :action => ResourceAction::RETIREMENT, :terraform_stack_id => terraform_stack_id
+        )
+      ).to have_attributes(
+        :type    => "ManageIQ::Providers::EmbeddedTerraform::AutomationManager::Job",
+        :options => {
+          :template_id        => template.id,
+          :env_vars           => env_vars,
+          :input_vars         => input_vars,
+          :credentials        => credentials,
+          :poll_interval      => 60,
+          :action             => ResourceAction::RETIREMENT,
+          :terraform_stack_id => terraform_stack_id
         }
       )
     end

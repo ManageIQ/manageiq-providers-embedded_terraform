@@ -26,7 +26,7 @@ module Terraform
       def stop
         raise "No job running to stop" if !running?
 
-        Terraform::Runner.stop_async(@stack_id)
+        Terraform::Runner.stop_stack(@stack_id)
       end
 
       # Re-Fetch async job's response

@@ -57,6 +57,7 @@ class ServiceTerraformTemplate < ServiceGeneric
   def launch_terraform_template(action)
     terraform_template = terraform_template(action)
 
+    # runs provision or retirement job, based on job_options
     stack = ManageIQ::Providers::EmbeddedTerraform::AutomationManager::Stack.create_stack(terraform_template, get_job_options(action))
     add_resource!(stack, :name => action)
   end
@@ -75,8 +76,30 @@ class ServiceTerraformTemplate < ServiceGeneric
 
   private
 
+  def job(action)
+    stack(action)&.miq_task&.job
+  end
+
   def get_job_options(action)
-    options[job_option_key(action)].deep_dup
+    job_options = options[job_option_key(action)].deep_dup
+
+    if action == ResourceAction::RETIREMENT
+      prov_job = job(ResourceAction::PROVISION)
+      if prov_job.present? && prov_job.options.present?
+        # Copy input-vars from Provision(terraform apply) action,
+        # the Retirement(terraform destroy) action will use same input-vars/values.
+        prov_vars = prov_job.options.dig(:input_vars, :extra_vars)
+        job_options[:extra_vars] = prov_vars.deep_merge!(job_options[:extra_vars]) if prov_vars
+
+        # add stack_id for terraform-runner
+        job_options[:terraform_stack_id] = prov_job.options[:terraform_stack_id]
+      end
+    end
+
+    # current action, required to identify Retirement action
+    job_options[:action] = action
+
+    job_options
   end
 
   def config_options(action)

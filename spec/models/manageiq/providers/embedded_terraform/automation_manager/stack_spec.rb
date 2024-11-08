@@ -39,11 +39,11 @@ RSpec.describe ManageIQ::Providers::EmbeddedTerraform::AutomationManager::Stack 
       let(:terraform_runner_url) { "https://1.2.3.4:7000" }
       let(:hello_world_retrieve_response) do
         require 'json'
-        JSON.parse(File.read(File.join(__dir__, "../../../../../lib/terraform/runner/data/responses/hello-world-retrieve-success.json")))
+        JSON.parse(File.read(File.join(__dir__, "../../../../../lib/terraform/runner/data/responses/hello-world-retrieve-create-success.json")))
       end
       let(:miq_task) { FactoryBot.create(:miq_task, :job => job) }
 
-      let(:job) { FactoryBot.create(:embedded_terraform_job, :state => "finished", :options => {:terraform_stack_id => hello_world_retrieve_response['stack_id']})}
+      let(:job) { FactoryBot.create(:embedded_terraform_job, :state => "finished", :options => {:terraform_stack_id => hello_world_retrieve_response['stack_id']}) }
       let(:terraform_runner_stdout) { hello_world_retrieve_response['message'] }
       let(:terraform_runner_stdout_html) { TerminalToHtml.render(terraform_runner_stdout) }
 

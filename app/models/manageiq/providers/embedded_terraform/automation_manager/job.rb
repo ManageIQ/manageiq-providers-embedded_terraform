@@ -1,11 +1,13 @@
 class ManageIQ::Providers::EmbeddedTerraform::AutomationManager::Job < Job
-  def self.create_job(template, env_vars, input_vars, credentials, poll_interval: 1.minute)
+  def self.create_job(template, env_vars, input_vars, credentials, action: ResourceAction::PROVISION, terraform_stack_id: nil, poll_interval: 1.minute)
     super(
-      :template_id   => template.id,
-      :env_vars      => env_vars,
-      :input_vars    => input_vars,
-      :credentials   => credentials,
-      :poll_interval => poll_interval,
+      :template_id        => template.id,
+      :env_vars           => env_vars,
+      :input_vars         => input_vars,
+      :credentials        => credentials,
+      :poll_interval      => poll_interval,
+      :action             => action,
+      :terraform_stack_id => terraform_stack_id
     )
   end
 
@@ -21,12 +23,28 @@ class ManageIQ::Providers::EmbeddedTerraform::AutomationManager::Job < Job
   def execute
     template_path = File.join(options[:git_checkout_tempdir], template_relative_path)
     credentials   = Authentication.where(:id => options[:credentials])
-    extra_vars    = options.dig(:input_vars, :extra_vars) || {}
+    input_vars    = options.dig(:input_vars, :extra_vars) || {}
+    action        = options[:action]
 
-    response = Terraform::Runner.run(decrypt_extra_vars(extra_vars), template_path, :credentials => credentials, :env_vars => options[:env_vars])
-
-    options[:terraform_stack_id] = response.stack_id
-    save!
+    case action
+    when ResourceAction::RETIREMENT
+      Terraform::Runner.delete_stack(
+        options[:terraform_stack_id],
+        template_path,
+        :input_vars  => decrypt_vars(input_vars),
+        :credentials => credentials,
+        :env_vars    => options[:env_vars]
+      )
+    else
+      response = Terraform::Runner.create_stack(
+        template_path,
+        :input_vars  => decrypt_vars(input_vars),
+        :credentials => credentials,
+        :env_vars    => options[:env_vars]
+      )
+      options[:terraform_stack_id] = response.stack_id
+      save!
+    end
 
     queue_poll_runner
   end
@@ -106,9 +124,8 @@ class ManageIQ::Providers::EmbeddedTerraform::AutomationManager::Job < Job
     @stack_response ||= Terraform::Runner::ResponseAsync.new(options[:terraform_stack_id])
   end
 
-  def decrypt_extra_vars(extra_vars)
-    result = extra_vars.deep_dup
-    result.transform_values! { |val| val.kind_of?(String) ? ManageIQ::Password.try_decrypt(val) : val }
+  def decrypt_vars(input_vars)
+    input_vars.transform_values { |val| val.kind_of?(String) ? ManageIQ::Password.try_decrypt(val) : val }
   end
 
   def configuration_script_source
