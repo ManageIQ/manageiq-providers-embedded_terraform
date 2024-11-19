@@ -17,6 +17,5 @@
 :workers:
   :worker_base:
     :opentofu_worker:
-      :container_image: docker.io/manageiq/opentofu-runner:latest
       :heartbeat_timeout:
       :opentofu_offline: false
