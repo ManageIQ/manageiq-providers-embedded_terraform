@@ -42,10 +42,6 @@ class ManageIQ::Providers::EmbeddedTerraform::AutomationManager::Stack < ManageI
       "#{name}::Status".constantize
     end
 
-    def status_class
-      "#{name}::Status".constantize
-    end
-
     private
 
     def collect_authentications(manager, options)
