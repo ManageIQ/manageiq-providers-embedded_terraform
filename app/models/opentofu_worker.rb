@@ -72,7 +72,7 @@ class OpentofuWorker < MiqWorker
   end
 
   def container_image
-    ENV["OPENTOFU_RUNNER_IMAGE"] || worker_settings[:container_image] || default_image
+    ENV["OPENTOFU_RUNNER_IMAGE"] || default_image
   end
 
   def enable_systemd_unit
@@ -94,8 +94,7 @@ class OpentofuWorker < MiqWorker
       "DATABASE_HOSTNAME"     => database_configuration[:host],
       "DATABASE_NAME"         => database_configuration[:database],
       "DATABASE_USERNAME"     => database_configuration[:username],
-      "MEMCACHE_SERVERS"      => ::Settings.session.memcache_server,
-      "OPENTOFU_RUNNER_IMAGE" => container_image
+      "MEMCACHE_SERVERS"      => ::Settings.session.memcache_server
     }
   end
 
