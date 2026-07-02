@@ -5,14 +5,37 @@ require 'base64'
 
 module Terraform
   class Runner
+    class TemporarilyUnavailable < StandardError; end
+
     class << self
       def available?
-        return @available if defined?(@available)
+        @available_mutex = Mutex.new unless defined?(@available_mutex)
 
-        response = terraform_runner_client.get('ready')
-        @available = response.status == 200 && JSON.parse(response.body)['status'] == 'UP'
-      rescue
-        @available = false
+        # If previously available, return cached true
+        return true if defined?(@available) && @available == true
+
+        # If previously unavailable and within availability-cache TTL, return cached false
+        return false if availability_cache_live?
+
+        @available_mutex.synchronize do
+          # Double-check inside mutex (another thread may have updated)
+          return false if availability_cache_live?
+
+          # Fetch ready status from Terraform Runner service
+          response = terraform_runner_client.get('ready')
+          $embedded_terraform_log.debug("Terraform runner ready check response: #{response.body}")
+          @available = response.status == 200 && JSON.parse(response.body)['status'] == 'UP'
+          @available_checked_at = Time.now.utc unless @available
+          @available
+        rescue
+          @available = false
+          @available_checked_at = Time.now.utc
+          false
+        end
+      end
+
+      def reset_available!
+        reset_availability_cache!
       end
 
       # Run TerraformRunner Stack actions with a Terraform template.
@@ -85,6 +108,7 @@ module Terraform
       #
       # @return [Terraform::Runner::Response] Response object with result of terraform run
       def retrieve_stack(stack_id, stack_job_id = nil)
+        $embedded_terraform_log.debug("Retrieve terraform runner stack: #{stack_id}/#{stack_job_id}")
         run_terraform_runner_stack_api(
           Request.new(
             ActionType::RETRIEVE,
@@ -109,13 +133,14 @@ module Terraform
         request = Request.new(ActionType::TEMPLATE_VARIABLES, {:template_path => template_path})
         action_endpoint = ActionType.action_endpoint(ActionType::TEMPLATE_VARIABLES)
 
-        http_response = terraform_runner_client.post(
-          action_endpoint,
-          *request.build_json_post_arguments
-        )
+        http_response = post(action_endpoint, request)
 
         $embedded_terraform_log.debug("==== http_response.body: \n #{http_response.body}")
         JSON.parse(http_response.body)
+      end
+
+      def availability_max_wait_time
+        ENV.fetch('TERRAFORM_RUNNER_AVAILABILITY_MAX_WAIT_TIME', 600).to_i
       end
 
       private
@@ -128,12 +153,8 @@ module Terraform
         @server_token ||= ENV.fetch('TERRAFORM_RUNNER_TOKEN', jwt_token)
       end
 
-      def stack_job_interval_in_secs
-        ENV.fetch('TERRAFORM_RUNNER_STACK_JOB_CHECK_INTERVAL', 10).to_i
-      end
-
-      def stack_job_max_time_in_secs
-        ENV.fetch('TERRAFORM_RUNNER_STACK_JOB_MAX_TIME', 120).to_i
+      def availability_cache_ttl
+        ENV.fetch('TERRAFORM_RUNNER_AVAILABILITY_CACHE_TTL', 30).to_i # in seconds
       end
 
       # create http client for terraform-runner rest-api
@@ -158,10 +179,7 @@ module Terraform
       def run_terraform_runner_stack_api(request)
         action_endpoint = ActionType.action_endpoint(request.action_type)
 
-        http_response = terraform_runner_client.post(
-          action_endpoint,
-          *request.build_json_post_arguments
-        )
+        http_response = post(action_endpoint, request)
 
         if request.action_type == ActionType::CREATE
           $embedded_terraform_log.info("terraform-runnner #{action_endpoint} for #{request.options["name"]} is running ...")
@@ -173,6 +191,44 @@ module Terraform
 
         Terraform::Runner::Response.parsed_response(http_response).tap do |resp|
           $embedded_terraform_log.info("terraform-runnner[#{action_endpoint}] stack/#{resp.stack_id}/#{resp.stack_job_id}")
+        end
+      end
+
+      # Post to terraform-runner API — single attempt, fail fast.
+      #
+      # @param action_endpoint [String] The API endpoint to post to
+      # @param request [Terraform::Runner::Request] The request object containing the payload
+      # @return [Faraday::Response] The HTTP response from the API
+      # @raise [Terraform::Runner::TemporarilyUnavailable] on 503 response or connection/timeout error
+      def post(action_endpoint, request)
+        http_response = terraform_runner_client.post(
+          action_endpoint,
+          *request.build_json_post_arguments
+        )
+
+        if http_response.status == 503
+          reset_availability_cache!
+          raise Terraform::Runner::TemporarilyUnavailable, "Terraform runner returned 503"
+        end
+
+        http_response
+      rescue Faraday::ConnectionFailed, Faraday::TimeoutError => e
+        reset_availability_cache!
+        raise Terraform::Runner::TemporarilyUnavailable, "Terraform runner not reachable: #{e.message}"
+      end
+
+      def availability_cache_live?
+        defined?(@available) &&
+          @available == false &&
+          @available_checked_at &&
+          ((Time.now.utc - @available_checked_at) < availability_cache_ttl)
+      end
+
+      def reset_availability_cache!
+        @available_mutex = Mutex.new unless defined?(@available_mutex)
+        @available_mutex.synchronize do
+          @available = false
+          @available_checked_at = nil
         end
       end
 
