@@ -1,2 +1,2 @@
-name,description,max_concurrent,external_failover,role_scope
-embedded_terraform,Embedded Terraform,1,false,region
+name,description,max_concurrent,external_failover,role_scope,default
+embedded_terraform,Embedded Terraform,1,false,region,false
