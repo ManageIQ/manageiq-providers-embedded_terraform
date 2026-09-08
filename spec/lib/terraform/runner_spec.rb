@@ -33,8 +33,226 @@ RSpec.describe(Terraform::Runner) do
     end
   end
 
+  describe ".available? availability-cache TTL" do
+    before do
+      Terraform::Runner.instance_variable_set(:@available, nil)
+      Terraform::Runner.instance_variable_set(:@available_checked_at, nil)
+    end
+
+    context "when /ready returns 503 (unavailable)" do
+      before do
+        stub_request(:get, "#{terraform_runner_url}/ready")
+          .to_return(:status => 503, :body => {:status => "DOWN"}.to_json)
+      end
+
+      it "returns false and caches the result within the TTL window" do
+        stub_const("ENV", ENV.to_h.merge(
+                            "TERRAFORM_RUNNER_URL"                    => terraform_runner_url,
+                            "TERRAFORM_RUNNER_AVAILABILITY_CACHE_TTL" => "30"
+                          ))
+
+        expect(Terraform::Runner.available?).to eq(false)
+
+        # A second call should NOT re-hit /ready (within TTL) — allow_any_instance_of
+        # ensures no new request is made by asserting only 1 request total
+        expect(WebMock).to have_requested(:get, "#{terraform_runner_url}/ready").times(1)
+
+        expect(Terraform::Runner.available?).to eq(false)
+        expect(WebMock).to have_requested(:get, "#{terraform_runner_url}/ready").times(1)
+      end
+
+      it "re-checks /ready after the TTL expires" do
+        stub_const("ENV", ENV.to_h.merge(
+                            "TERRAFORM_RUNNER_URL"                    => terraform_runner_url,
+                            "TERRAFORM_RUNNER_AVAILABILITY_CACHE_TTL" => "30"
+                          ))
+
+        expect(Terraform::Runner.available?).to eq(false)
+
+        # Simulate TTL expiry by backdating @available_checked_at
+        Terraform::Runner.instance_variable_set(:@available_checked_at, Time.now.utc - 31)
+
+        expect(Terraform::Runner.available?).to eq(false)
+        # Two requests: first check + re-check after TTL expiry
+        expect(WebMock).to have_requested(:get, "#{terraform_runner_url}/ready").times(2)
+      end
+    end
+
+    context "when /ready returns 200 (available)" do
+      before do
+        stub_request(:get, "#{terraform_runner_url}/ready")
+          .to_return(:status => 200, :body => {:status => "UP", :checks => []}.to_json)
+      end
+
+      it "returns true and caches indefinitely (no TTL on positive result)" do
+        expect(Terraform::Runner.available?).to eq(true)
+        expect(Terraform::Runner.available?).to eq(true)
+        # Still only one HTTP request — positive result cached permanently
+        expect(WebMock).to have_requested(:get, "#{terraform_runner_url}/ready").times(1)
+      end
+    end
+  end
+
+  describe ".reset_available!" do
+    before do
+      Terraform::Runner.instance_variable_set(:@available, nil)
+      Terraform::Runner.instance_variable_set(:@available_checked_at, nil)
+    end
+
+    it "clears the positive availability cache so the next available? re-checks /ready" do
+      stub_request(:get, "#{terraform_runner_url}/ready")
+        .to_return(:status => 200, :body => {:status => "UP", :checks => []}.to_json)
+
+      expect(Terraform::Runner.available?).to eq(true)
+      expect(Terraform::Runner.instance_variable_get(:@available)).to eq(true)
+
+      Terraform::Runner.reset_available!
+
+      expect(Terraform::Runner.instance_variable_get(:@available)).to eq(false)
+      expect(Terraform::Runner.instance_variable_get(:@available_checked_at)).to be_nil
+    end
+
+    it "clears @available_checked_at so the availability-cache TTL is bypassed on next available? call" do
+      stub_request(:get, "#{terraform_runner_url}/ready")
+        .to_return(:status => 503, :body => {:status => "DOWN"}.to_json)
+        .times(1)
+        .then
+        .to_return(:status => 200, :body => {:status => "UP", :checks => []}.to_json)
+
+      stub_const("ENV", ENV.to_h.merge(
+                          "TERRAFORM_RUNNER_URL"                    => terraform_runner_url,
+                          "TERRAFORM_RUNNER_AVAILABILITY_CACHE_TTL" => "30"
+                        ))
+
+      # First call: unavailable, availability-cache set
+      expect(Terraform::Runner.available?).to eq(false)
+      expect(Terraform::Runner.instance_variable_get(:@available_checked_at)).not_to be_nil
+
+      # reset! clears the timestamp so next call bypasses TTL
+      Terraform::Runner.reset_available!
+      expect(Terraform::Runner.instance_variable_get(:@available_checked_at)).to be_nil
+
+      # Second call now re-checks /ready and finds it up
+      expect(Terraform::Runner.available?).to eq(true)
+    end
+  end
+
+  describe ".run_terraform_runner_stack_api raises TemporarilyUnavailable" do
+    before do
+      Terraform::Runner.instance_variable_set(:@available, nil)
+      Terraform::Runner.instance_variable_set(:@available_checked_at, nil)
+    end
+
+    context "when runner is available and API call succeeds" do
+      before do
+        stub_request(:get, "#{terraform_runner_url}/ready")
+          .to_return(:status => 200, :body => {:status => "UP", :checks => []}.to_json)
+      end
+
+      let!(:create_stub) do
+        stub_request(:post, "#{terraform_runner_url}/api/stack/create")
+          .to_return(:status => 200, :body => @hello_world_create_response.to_json)
+      end
+
+      it "proceeds with the API call normally" do
+        Terraform::Runner.run(
+          Terraform::Runner::ActionType::CREATE,
+          File.join(__dir__, "runner/data/hello-world"),
+          {}
+        )
+
+        expect(create_stub).to have_been_requested.times(1)
+      end
+    end
+
+    context "when API returns 503" do
+      before do
+        stub_request(:post, "#{terraform_runner_url}/api/stack/create")
+          .to_return(:status => 503, :body => {
+            :error => {
+              :statusCode => 503,
+              :name       => "ServiceUnavailable",
+              :message    => "API is temporarily unavailable due to an active database migration."
+            }
+          }.to_json)
+      end
+
+      it "raises TemporarilyUnavailable and does not sleep" do
+        expect(Terraform::Runner).not_to receive(:sleep)
+
+        expect do
+          Terraform::Runner.run(
+            Terraform::Runner::ActionType::CREATE,
+            File.join(__dir__, "runner/data/hello-world"),
+            {}
+          )
+        end.to raise_error(Terraform::Runner::TemporarilyUnavailable)
+      end
+
+      it "resets the availability cache so the next available? check re-queries /ready" do
+        stub_request(:get, "#{terraform_runner_url}/ready")
+          .to_return(:status => 200, :body => {:status => "UP", :checks => []}.to_json)
+
+        expect do
+          Terraform::Runner.run(
+            Terraform::Runner::ActionType::CREATE,
+            File.join(__dir__, "runner/data/hello-world"),
+            {}
+          )
+        end.to raise_error(Terraform::Runner::TemporarilyUnavailable)
+
+        # After reset, @available_checked_at is nil so next available? re-checks
+        expect(Terraform::Runner.instance_variable_get(:@available)).to eq(false)
+        expect(Terraform::Runner.instance_variable_get(:@available_checked_at)).to be_nil
+      end
+    end
+
+    context "when API raises Faraday::ConnectionFailed" do
+      before do
+        stub_request(:post, "#{terraform_runner_url}/api/stack/create")
+          .to_raise(Faraday::ConnectionFailed.new("Connection refused"))
+      end
+
+      it "raises TemporarilyUnavailable without sleeping" do
+        expect(Terraform::Runner).not_to receive(:sleep)
+
+        expect do
+          Terraform::Runner.run(
+            Terraform::Runner::ActionType::CREATE,
+            File.join(__dir__, "runner/data/hello-world"),
+            {}
+          )
+        end.to raise_error(Terraform::Runner::TemporarilyUnavailable, /Connection refused/)
+      end
+    end
+
+    context "when API raises Faraday::TimeoutError" do
+      before do
+        stub_request(:post, "#{terraform_runner_url}/api/stack/create")
+          .to_raise(Faraday::TimeoutError.new("Request timeout"))
+      end
+
+      it "raises TemporarilyUnavailable without sleeping" do
+        expect(Terraform::Runner).not_to receive(:sleep)
+
+        expect do
+          Terraform::Runner.run(
+            Terraform::Runner::ActionType::CREATE,
+            File.join(__dir__, "runner/data/hello-world"),
+            {}
+          )
+        end.to raise_error(Terraform::Runner::TemporarilyUnavailable, /Request timeout/)
+      end
+    end
+  end
+
   context 'Create Stack for hello-world terraform template' do
     describe '.run create stack with input_vars' do
+      before do
+        stub_request(:get, "#{terraform_runner_url}/ready")
+          .to_return(:status => 200, :body => {:status => "UP", :checks => []}.to_json)
+      end
+
       def verify_req(req)
         body = JSON.parse(req.body)
         expect(body["name"]).to(start_with('stack-'))
@@ -117,6 +335,11 @@ RSpec.describe(Terraform::Runner) do
     end
 
     describe 'ResponseAsync' do
+      before do
+        stub_request(:get, "#{terraform_runner_url}/ready")
+          .to_return(:status => 200, :body => {:status => "UP", :checks => []}.to_json)
+      end
+
       let!(:retrieve_stub) do
         stub_request(:post, "#{terraform_runner_url}/api/stack/retrieve")
           .with(
@@ -187,6 +410,11 @@ RSpec.describe(Terraform::Runner) do
     end
 
     describe 'Stop running a create-stack job' do
+      before do
+        stub_request(:get, "#{terraform_runner_url}/ready")
+          .to_return(:status => 200, :body => {:status => "UP", :checks => []}.to_json)
+      end
+
       let!(:create_stub) do
         stub_request(:post, "#{terraform_runner_url}/api/stack/create")
           .with(:body => hash_including({:parameters => [], :cloud_providers => []}))
@@ -268,6 +496,11 @@ RSpec.describe(Terraform::Runner) do
     end
 
     describe 'Update stack for Reconfiguration of created stack' do
+      before do
+        stub_request(:get, "#{terraform_runner_url}/ready")
+          .to_return(:status => 200, :body => {:status => "UP", :checks => []}.to_json)
+      end
+
       def verify_req(req)
         body = JSON.parse(req.body)
         expect(body["stack_id"]).to eq(@hello_world_retrieve_update_response['stack_id'])
@@ -327,6 +560,11 @@ RSpec.describe(Terraform::Runner) do
     end
 
     describe 'Delete stack for Retirement of created stack' do
+      before do
+        stub_request(:get, "#{terraform_runner_url}/ready")
+          .to_return(:status => 200, :body => {:status => "UP", :checks => []}.to_json)
+      end
+
       def verify_req(req)
         body = JSON.parse(req.body)
         expect(body["stack_id"]).to(eq(@hello_world_retrieve_delete_response['stack_id']))
@@ -389,6 +627,11 @@ RSpec.describe(Terraform::Runner) do
 
   context 'Create stack with cloud credentials' do
     describe 'Create stack with amazon credential' do
+      before do
+        stub_request(:get, "#{terraform_runner_url}/ready")
+          .to_return(:status => 200, :body => {:status => "UP", :checks => []}.to_json)
+      end
+
       let(:amazon_cred) do
         params = {
           :userid         => "manageiq-aws",
@@ -456,6 +699,11 @@ RSpec.describe(Terraform::Runner) do
     end
 
     describe 'Create stack with vSphere & ibmcloud credential' do
+      before do
+        stub_request(:get, "#{terraform_runner_url}/ready")
+          .to_return(:status => 200, :body => {:status => "UP", :checks => []}.to_json)
+      end
+
       let(:vsphere_cred) do
         params = {
           :userid   => "userid",
@@ -540,6 +788,11 @@ RSpec.describe(Terraform::Runner) do
 
   context '.parse_template_variables hello-world' do
     describe '.parse_template_variables input/output vars' do
+      before do
+        stub_request(:get, "#{terraform_runner_url}/ready")
+          .to_return(:status => 200, :body => {:status => "UP", :checks => []}.to_json)
+      end
+
       def verify_req(req)
         body = JSON.parse(req.body)
         expect(body).to(have_key('templateZipFile'))
@@ -585,6 +838,80 @@ RSpec.describe(Terraform::Runner) do
 
         terraform_version = response['terraform_version']
         expect(terraform_version).to eq('>= 1.1.0')
+      end
+    end
+
+    describe '.parse_template_variables raises TemporarilyUnavailable' do
+      let(:hello_world_variables_response) { JSON.parse(File.read(File.join(__dir__, "runner/data/responses/hello-world-variables-success.json"))) }
+
+      before do
+        Terraform::Runner.instance_variable_set(:@available, nil)
+        Terraform::Runner.instance_variable_set(:@available_checked_at, nil)
+      end
+
+      context "when API call succeeds" do
+        before do
+          stub_request(:post, "#{terraform_runner_url}/api/template/variables")
+            .to_return(:status => 200, :body => hello_world_variables_response.to_json)
+        end
+
+        it "returns the parsed response without sleeping" do
+          expect(Terraform::Runner).not_to receive(:sleep)
+
+          response = Terraform::Runner.parse_template_variables(File.join(__dir__, "runner/data/hello-world"))
+          expect(response).to have_key('template_input_params')
+        end
+      end
+
+      context "when API returns 503" do
+        before do
+          stub_request(:post, "#{terraform_runner_url}/api/template/variables")
+            .to_return(:status => 503, :body => {
+              :error => {
+                :statusCode => 503,
+                :name       => "ServiceUnavailable",
+                :message    => "API is temporarily unavailable due to an active database migration."
+              }
+            }.to_json)
+        end
+
+        it "raises TemporarilyUnavailable without sleeping" do
+          expect(Terraform::Runner).not_to receive(:sleep)
+
+          expect do
+            Terraform::Runner.parse_template_variables(File.join(__dir__, "runner/data/hello-world"))
+          end.to raise_error(Terraform::Runner::TemporarilyUnavailable)
+        end
+      end
+
+      context "when API raises Faraday::ConnectionFailed" do
+        before do
+          stub_request(:post, "#{terraform_runner_url}/api/template/variables")
+            .to_raise(Faraday::ConnectionFailed.new("Connection refused"))
+        end
+
+        it "raises TemporarilyUnavailable without sleeping" do
+          expect(Terraform::Runner).not_to receive(:sleep)
+
+          expect do
+            Terraform::Runner.parse_template_variables(File.join(__dir__, "runner/data/hello-world"))
+          end.to raise_error(Terraform::Runner::TemporarilyUnavailable, /Connection refused/)
+        end
+      end
+
+      context "when API raises Faraday::TimeoutError" do
+        before do
+          stub_request(:post, "#{terraform_runner_url}/api/template/variables")
+            .to_raise(Faraday::TimeoutError.new("Request timeout"))
+        end
+
+        it "raises TemporarilyUnavailable without sleeping" do
+          expect(Terraform::Runner).not_to receive(:sleep)
+
+          expect do
+            Terraform::Runner.parse_template_variables(File.join(__dir__, "runner/data/hello-world"))
+          end.to raise_error(Terraform::Runner::TemporarilyUnavailable, /Request timeout/)
+        end
       end
     end
   end
