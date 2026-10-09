@@ -27,6 +27,116 @@ describe ManageIQ::Providers::EmbeddedTerraform::AutomationManager::Provision do
   end
   let(:stack_options) { {:action => ResourceAction::PROVISION, :input_vars => {}, :credentials => []} }
 
+  describe ".configuration_script_ref=" do
+    let(:scm_url)    { "https://example.com/repo.git" }
+    let(:scm_branch) { "main" }
+    let(:script_source) do
+      FactoryBot.create(
+        :configuration_script_source,
+        :type       => "ManageIQ::Providers::EmbeddedTerraform::AutomationManager::ConfigurationScriptSource",
+        :manager    => ems,
+        :scm_url    => scm_url,
+        :scm_branch => scm_branch
+      )
+    end
+    let(:configuration_script_with_source) do
+      FactoryBot.create(
+        :configuration_script_embedded_terraform,
+        :manager                        => ems,
+        :parent                         => terraform_template,
+        :configuration_script_source_id => script_source.id,
+        :name                           => "myorg/my-template"
+      )
+    end
+
+    it "resolves a ConfigurationScript matching scm_url, scm_branch and name" do
+      provision = described_class.new(
+        :userid                   => admin.userid,
+        :miq_request              => miq_request,
+        :request_type             => 'template',
+        :state                    => "pending",
+        :status                   => 'Ok',
+        :options                  => options,
+        :configuration_script_ref => {
+          :scm_url    => scm_url,
+          :scm_branch => scm_branch,
+          :name       => configuration_script_with_source.name
+        }
+      )
+
+      expect(provision.source).to eq(configuration_script_with_source)
+    end
+
+    it "leaves source unchanged when scm_url does not match" do
+      provision = described_class.new(
+        :userid                   => admin.userid,
+        :miq_request              => miq_request,
+        :request_type             => 'template',
+        :state                    => "pending",
+        :status                   => 'Ok',
+        :options                  => options,
+        :configuration_script_ref => {
+          :scm_url    => "https://other.example.com/repo.git",
+          :scm_branch => scm_branch,
+          :name       => configuration_script_with_source.name
+        }
+      )
+
+      expect(provision.source).to be_nil
+    end
+
+    it "leaves source unchanged when scm_branch does not match" do
+      provision = described_class.new(
+        :userid                   => admin.userid,
+        :miq_request              => miq_request,
+        :request_type             => 'template',
+        :state                    => "pending",
+        :status                   => 'Ok',
+        :options                  => options,
+        :configuration_script_ref => {
+          :scm_url    => scm_url,
+          :scm_branch => "nonexistent-branch",
+          :name       => configuration_script_with_source.name
+        }
+      )
+
+      expect(provision.source).to be_nil
+    end
+
+    it "leaves source unchanged when the template name does not match" do
+      provision = described_class.new(
+        :userid                   => admin.userid,
+        :miq_request              => miq_request,
+        :request_type             => 'template',
+        :state                    => "pending",
+        :status                   => 'Ok',
+        :options                  => options,
+        :configuration_script_ref => {
+          :scm_url    => scm_url,
+          :scm_branch => scm_branch,
+          :name       => "nonexistent/template"
+        }
+      )
+
+      expect(provision.source).to be_nil
+    end
+
+    it "is ignored when configuration_script_ref is blank" do
+      provision = described_class.new(
+        :userid                   => admin.userid,
+        :miq_request              => miq_request,
+        :source                   => configuration_script,
+        :request_type             => 'template',
+        :state                    => "pending",
+        :status                   => 'Ok',
+        :options                  => options,
+        :configuration_script_ref => nil
+      )
+
+      expect(provision.source).to eq(configuration_script)
+    end
+  end
+
   it ".my_role" do
     expect(subject.my_role).to eq("ems_operations")
   end
@@ -360,6 +470,133 @@ describe ManageIQ::Providers::EmbeddedTerraform::AutomationManager::Provision do
                                            :input_vars  => {"region" => "us-east-1", "instance_type" => "t2.micro"},
                                            :credentials => [auth.id]
                                          })
+      end
+    end
+  end
+
+  describe "#build_stack_opts (private)" do
+    it "always sets :action to ResourceAction::PROVISION" do
+      result = subject.send(:build_stack_opts)
+
+      expect(result[:action]).to eq(ResourceAction::PROVISION)
+    end
+
+    describe "credentials" do
+      context "when no credential_id option is set" do
+        it "returns an empty credentials array" do
+          result = subject.send(:build_stack_opts)
+
+          expect(result[:credentials]).to eq([])
+        end
+      end
+
+      context "when credential_id is blank" do
+        before { subject.options[:credential_id] = "" }
+
+        it "returns an empty credentials array" do
+          result = subject.send(:build_stack_opts)
+
+          expect(result[:credentials]).to eq([])
+        end
+      end
+
+      context "when credential_id refers to a non-existent record" do
+        before { subject.options[:credential_id] = 0 }
+
+        it "returns an empty credentials array" do
+          result = subject.send(:build_stack_opts)
+
+          expect(result[:credentials]).to eq([])
+        end
+      end
+
+      context "when a valid credential_id is set" do
+        let(:credential) { FactoryBot.create(:embedded_terraform_credential, :manager_ref => "42") }
+
+        before { subject.options[:credential_id] = credential.id }
+
+        it "returns an array containing the credential's native_ref" do
+          result = subject.send(:build_stack_opts)
+
+          expect(result[:credentials]).to eq([credential.native_ref])
+        end
+      end
+    end
+
+    describe "input_vars" do
+      context "when there are no dialog options" do
+        it "returns an empty hash" do
+          result = subject.send(:build_stack_opts)
+
+          expect(result[:input_vars]).to eq({})
+        end
+      end
+
+      context "when options contain dialog_ prefixed keys" do
+        before do
+          subject.options[:dialog_region]   = "us-east-1"
+          subject.options[:dialog_instance] = "t2.micro"
+        end
+
+        it "strips the dialog_ prefix from each key" do
+          result = subject.send(:build_stack_opts)
+
+          expect(result[:input_vars]).to eq("region" => "us-east-1", "instance" => "t2.micro")
+        end
+      end
+
+      context "when the nested 'dialog' hash contains a password::dialog_ prefixed key" do
+        before { subject.options["dialog"] = {"password::dialog_secret_key" => "s3cr3t"} }
+
+        it "strips the password::dialog_ prefix to produce the bare variable name" do
+          result = subject.send(:build_stack_opts)
+
+          expect(result[:input_vars]).to eq("secret_key" => "s3cr3t")
+        end
+      end
+
+      context "when a top-level key starts with password::dialog_ (no leading dialog_)" do
+        before { subject.options["password::dialog_secret_key"] = "s3cr3t" }
+
+        it "does not include the key because it does not start with dialog_" do
+          result = subject.send(:build_stack_opts)
+
+          expect(result[:input_vars]).not_to have_key("secret_key")
+        end
+      end
+
+      context "when options contain a nested 'dialog' hash" do
+        before { subject.options["dialog"] = {"env" => "production", "count" => "3"} }
+
+        it "includes keys from the nested dialog hash" do
+          result = subject.send(:build_stack_opts)
+
+          expect(result[:input_vars]).to eq("env" => "production", "count" => "3")
+        end
+      end
+
+      context "when both dialog_ prefixed keys and a nested 'dialog' hash are present" do
+        before do
+          subject.options[:dialog_region] = "us-east-1"
+          subject.options["dialog"]       = {"env" => "production", "region" => "eu-west-1"}
+        end
+
+        it "merges both sources and nested dialog hash values win on conflict" do
+          result = subject.send(:build_stack_opts)
+
+          expect(result[:input_vars]).to include("region" => "eu-west-1", "env" => "production")
+        end
+      end
+
+      context "when a dialog_ key strips to an empty string (bare 'dialog_' key)" do
+        before { subject.options["dialog_"] = "orphan" }
+
+        it "produces an empty-string key (only nil keys are excluded by .except(nil))" do
+          result = subject.send(:build_stack_opts)
+
+          expect(result[:input_vars]).not_to have_key(nil)
+          expect(result[:input_vars]).to have_key("")
+        end
       end
     end
   end
