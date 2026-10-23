@@ -144,6 +144,9 @@ class ManageIQ::Providers::EmbeddedTerraform::AutomationManager::Stack < ManageI
       # when provisioning or reconfiguring
       return unless miq_task
 
+      stack_data = terraform_runner_stack_data
+      outputs    = stack_data&.details&.[]("outputs")
+
       transaction do
         current_miq_task = raw_status.miq_task
 
@@ -151,6 +154,29 @@ class ManageIQ::Providers::EmbeddedTerraform::AutomationManager::Stack < ManageI
         self.start_time  = current_miq_task.started_on
         self.finish_time = raw_status.completed? ? current_miq_task.updated_on : nil
         save!
+
+        if outputs.present?
+          orchestration_stack_outputs.delete_all
+          outputs.each do |output|
+            value, value_type =
+              case output["type"]
+              when "number"
+                num = output["value"]
+                num.kind_of?(Integer) ? [num.to_s, "integer"] : [num.to_s, "float"]
+              when "bool"
+                [output["value"].to_s, "boolean"]
+              when "list", "tuple", "set"
+                [output["value"].to_json, "array"]
+              when "map", "object"
+                [output["value"].to_json, "object"]
+              else
+                # string or unknown/nil type — store as plain string
+                [output["value"].to_s, "string"]
+              end
+
+            orchestration_stack_outputs.create!(:key => output["name"], :value => value, :value_type => value_type)
+          end
+        end
       end
     end
   end

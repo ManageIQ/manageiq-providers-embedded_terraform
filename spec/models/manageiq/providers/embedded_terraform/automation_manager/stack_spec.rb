@@ -369,4 +369,237 @@ RSpec.describe ManageIQ::Providers::EmbeddedTerraform::AutomationManager::Stack 
       end
     end
   end
+
+  describe "#refresh" do
+    let(:ems)   { FactoryBot.create(:embedded_automation_manager_terraform) }
+    let(:stack) { FactoryBot.create(:terraform_stack, :ext_management_system => ems) }
+
+    context "when retired" do
+      before { allow(stack).to receive(:retired?).and_return(true) }
+
+      it "returns early without updating the stack" do
+        expect(stack).not_to receive(:save!)
+        stack.refresh
+      end
+    end
+
+    context "when error_retiring" do
+      before do
+        allow(stack).to receive(:retired?).and_return(false)
+        allow(stack).to receive(:error_retiring?).and_return(true)
+      end
+
+      it "returns early without updating the stack" do
+        expect(stack).not_to receive(:save!)
+        stack.refresh
+      end
+    end
+
+    context "when retiring" do
+      before do
+        allow(stack).to receive(:retired?).and_return(false)
+        allow(stack).to receive(:error_retiring?).and_return(false)
+        allow(stack).to receive(:retiring?).and_return(true)
+      end
+
+      context "when delete_miq_task is nil" do
+        before { allow(stack).to receive(:delete_miq_task).and_return(nil) }
+
+        it "returns early without calling poll_runner" do
+          expect(stack).not_to receive(:delete_job)
+          stack.refresh
+        end
+      end
+
+      context "when delete_miq_task is present and raw_status is running" do
+        let(:delete_miq_task) { FactoryBot.create(:miq_task, :state => MiqTask::STATE_ACTIVE, :status => MiqTask::STATUS_OK) }
+        let(:delete_job)      { FactoryBot.create(:embedded_terraform_job, :miq_task => delete_miq_task, :options => {:action => ResourceAction::RETIREMENT}) }
+
+        before do
+          # raw_status returns nil when miq_task is nil; stub it so Status.new(stack)
+          # runs and picks up delete_miq_task (STATE_ACTIVE → running? == true).
+          allow(stack).to receive(:miq_task).and_return(delete_miq_task)
+          allow(stack).to receive(:delete_miq_task).and_return(delete_miq_task)
+          allow(stack).to receive(:delete_job).and_return(delete_job)
+        end
+
+        it "calls poll_runner on the delete_job" do
+          expect(delete_job).to receive(:poll_runner)
+          stack.refresh
+        end
+      end
+
+      context "when delete_miq_task is present and raw_status is completed (not running)" do
+        let(:delete_miq_task) { FactoryBot.create(:miq_task, :state => MiqTask::STATE_FINISHED, :status => MiqTask::STATUS_OK) }
+        let(:delete_job)      { FactoryBot.create(:embedded_terraform_job, :miq_task => delete_miq_task, :options => {:action => ResourceAction::RETIREMENT}) }
+
+        before do
+          # raw_status returns nil when miq_task is nil; stub it so Status.new(stack)
+          # runs and picks up delete_miq_task (STATE_FINISHED → running? == false).
+          allow(stack).to receive(:miq_task).and_return(delete_miq_task)
+          allow(stack).to receive(:delete_miq_task).and_return(delete_miq_task)
+          allow(stack).to receive(:delete_job).and_return(delete_job)
+        end
+
+        it "does not call poll_runner" do
+          expect(delete_job).not_to receive(:poll_runner)
+          stack.refresh
+        end
+      end
+    end
+
+    context "when not retiring (provisioning or reconfiguring)" do
+      before do
+        allow(stack).to receive(:retired?).and_return(false)
+        allow(stack).to receive(:error_retiring?).and_return(false)
+        allow(stack).to receive(:retiring?).and_return(false)
+      end
+
+      context "when miq_task is nil" do
+        before { stack.update!(:ems_ref => nil) }
+
+        it "returns early without updating the stack" do
+          expect(stack).not_to receive(:save!)
+          stack.refresh
+        end
+      end
+
+      context "when miq_task is present and the task is still running" do
+        let(:started_on) { 5.minutes.ago.utc.change(:usec => 0) }
+        let(:miq_task)   { FactoryBot.create(:miq_task, :state => MiqTask::STATE_ACTIVE, :status => MiqTask::STATUS_OK, :started_on => started_on) }
+
+        before { stack.update!(:ems_ref => miq_task.id) }
+
+        it "updates status and start_time, and sets finish_time to nil" do
+          stack.refresh
+          stack.reload
+
+          expect(stack.status).to      eq(MiqTask::STATE_ACTIVE)
+          expect(stack.start_time).to  eq(started_on)
+          expect(stack.finish_time).to be_nil
+        end
+      end
+
+      context "when miq_task is present and the task is completed successfully" do
+        let(:started_on)  { 10.minutes.ago.utc.change(:usec => 0) }
+        let(:finished_on) { 5.minutes.ago.utc.change(:usec => 0) }
+        let(:outputs)     { [{"name" => "message", "type" => "string", "value" => "Hello, World!"}] }
+        let(:stack_data)  { Terraform::Runner::Response.new('action' => 'CREATE', 'details' => {'resources' => [], 'outputs' => outputs}) }
+        let(:miq_task) do
+          FactoryBot.create(:miq_task, :state => MiqTask::STATE_FINISHED, :status => MiqTask::STATUS_OK, :started_on => started_on, :updated_on => finished_on)
+        end
+
+        before do
+          stack.update!(:ems_ref => miq_task.id)
+          allow(stack).to receive(:terraform_runner_stack_data).and_return(stack_data)
+        end
+
+        it "updates status, start_time, and sets finish_time" do
+          stack.refresh
+          stack.reload
+
+          expect(stack.status).to      eq(MiqTask::STATE_FINISHED)
+          expect(stack.start_time).to  eq(started_on)
+          expect(stack.finish_time).to eq(finished_on)
+        end
+
+        it "creates orchestration_stack_outputs" do
+          stack.refresh
+          stack.reload
+
+          expect(stack.orchestration_stack_outputs.count).to eq(outputs.count)
+          expect(stack.orchestration_stack_outputs.first).to have_attributes(
+            :key        => "message",
+            :value      => "Hello, World!",
+            :value_type => "string"
+          )
+        end
+      end
+
+      context "when outputs contain all terraform types" do
+        let(:started_on)  { 10.minutes.ago.utc.change(:usec => 0) }
+        let(:finished_on) { 5.minutes.ago.utc.change(:usec => 0) }
+        let(:outputs) do
+          [
+            {"name" => "str_out",    "type" => "string", "value" => "hello"},
+            {"name" => "int_out",    "type" => "number", "value" => 42},
+            {"name" => "float_out",  "type" => "number", "value" => 3.14},
+            {"name" => "bool_out",   "type" => "bool",   "value" => true},
+            {"name" => "list_out",   "type" => "list",   "value" => %w[a b]},
+            {"name" => "set_out",    "type" => "set",    "value" => [1, 2]},
+            {"name" => "tuple_out",  "type" => "tuple",  "value" => ["x", 1]},
+            {"name" => "map_out",    "type" => "map",    "value" => {"k" => "v"}},
+            {"name" => "object_out", "type" => "object", "value" => {"a" => 1}},
+          ]
+        end
+        let(:stack_data) { Terraform::Runner::Response.new('action' => 'CREATE', 'details' => {'resources' => [], 'outputs' => outputs}) }
+        let(:miq_task) do
+          FactoryBot.create(:miq_task, :state => MiqTask::STATE_FINISHED, :status => MiqTask::STATUS_OK, :started_on => started_on, :updated_on => finished_on)
+        end
+
+        before do
+          stack.update!(:ems_ref => miq_task.id)
+          allow(stack).to receive(:terraform_runner_stack_data).and_return(stack_data)
+        end
+
+        it "stores string type with value_type 'string'" do
+          stack.refresh
+          stack.reload
+
+          expect(stack.orchestration_stack_outputs.find_by(:key => "str_out")).to have_attributes(:value => "hello", :value_type => "string")
+        end
+
+        it "stores number type as 'integer' for whole numbers and 'float' for decimals" do
+          stack.refresh
+          stack.reload
+
+          expect(stack.orchestration_stack_outputs.find_by(:key => "int_out")).to   have_attributes(:value => "42",   :value_type => "integer")
+          expect(stack.orchestration_stack_outputs.find_by(:key => "float_out")).to have_attributes(:value => "3.14", :value_type => "float")
+        end
+
+        it "stores bool type with value_type 'boolean'" do
+          stack.refresh
+          stack.reload
+
+          expect(stack.orchestration_stack_outputs.find_by(:key => "bool_out")).to have_attributes(:value => "true", :value_type => "boolean")
+        end
+
+        it "stores list, set, and tuple types as 'array' with JSON-encoded value" do
+          stack.refresh
+          stack.reload
+
+          expect(stack.orchestration_stack_outputs.find_by(:key => "list_out")).to  have_attributes(:value => '["a","b"]', :value_type => "array")
+          expect(stack.orchestration_stack_outputs.find_by(:key => "set_out")).to   have_attributes(:value => '[1,2]',     :value_type => "array")
+          expect(stack.orchestration_stack_outputs.find_by(:key => "tuple_out")).to have_attributes(:value => '["x",1]',   :value_type => "array")
+        end
+
+        it "stores map and object types as 'object' with JSON-encoded value" do
+          stack.refresh
+          stack.reload
+
+          expect(stack.orchestration_stack_outputs.find_by(:key => "map_out")).to    have_attributes(:value => '{"k":"v"}', :value_type => "object")
+          expect(stack.orchestration_stack_outputs.find_by(:key => "object_out")).to have_attributes(:value => '{"a":1}',   :value_type => "object")
+        end
+      end
+
+      context "when miq_task is present and the task is completed with an error" do
+        let(:started_on)  { 10.minutes.ago.utc.change(:usec => 0) }
+        let(:finished_on) { 5.minutes.ago.utc.change(:usec => 0) }
+        let(:miq_task) do
+          FactoryBot.create(:miq_task, :state => MiqTask::STATE_FINISHED, :status => MiqTask::STATUS_ERROR, :started_on => started_on, :updated_on => finished_on)
+        end
+
+        before { stack.update!(:ems_ref => miq_task.id) }
+
+        it "updates status, start_time, and sets finish_time" do
+          stack.refresh
+          stack.reload
+
+          expect(stack.status).to      eq(MiqTask::STATE_FINISHED)
+          expect(stack.start_time).to  eq(started_on)
+          expect(stack.finish_time).to eq(finished_on)
+        end
+      end
+    end
+  end
 end
