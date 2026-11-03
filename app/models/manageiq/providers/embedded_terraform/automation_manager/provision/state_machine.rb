@@ -24,6 +24,8 @@ module ManageIQ::Providers::EmbeddedTerraform::AutomationManager::Provision::Sta
   end
 
   def check_provisioned
+    stack.refresh
+
     if running?
       requeue_phase
     else
@@ -33,6 +35,7 @@ module ManageIQ::Providers::EmbeddedTerraform::AutomationManager::Provision::Sta
 
   def post_provision
     update_stack_resource_data!
+    update!(:destination => stack)
 
     if succeeded?
       signal :mark_as_completed
