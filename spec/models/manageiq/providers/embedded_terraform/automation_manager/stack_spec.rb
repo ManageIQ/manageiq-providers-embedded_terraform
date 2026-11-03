@@ -521,12 +521,12 @@ RSpec.describe ManageIQ::Providers::EmbeddedTerraform::AutomationManager::Stack 
         let(:finished_on) { 5.minutes.ago.utc.change(:usec => 0) }
         let(:outputs) do
           [
-            {"name" => "str_out",    "type" => "string", "value" => "hello"},
-            {"name" => "int_out",    "type" => "number", "value" => 42},
-            {"name" => "float_out",  "type" => "number", "value" => 3.14},
-            {"name" => "bool_out",   "type" => "bool",   "value" => true},
-            {"name" => "list_out",   "type" => "list",   "value" => %w[a b]},
-            {"name" => "map_out",    "type" => "map",    "value" => {"k" => "v"}},
+            {"name" => "str_out",    "type" => "string",  "value" => "hello"},
+            {"name" => "int_out",    "type" => "number",  "value" => 42},
+            {"name" => "float_out",  "type" => "number",  "value" => 3.14},
+            {"name" => "bool_out",   "type" => "boolean", "value" => true},
+            {"name" => "list_out",   "type" => "list",    "value" => %w[a b]},
+            {"name" => "map_out",    "type" => "map",     "value" => {"k" => "v"}},
           ]
         end
         let(:stack_data) { Terraform::Runner::Response.new('action' => 'CREATE', 'details' => {'resources' => [], 'outputs' => outputs}) }

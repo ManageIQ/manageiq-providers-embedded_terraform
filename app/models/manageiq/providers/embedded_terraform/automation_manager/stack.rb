@@ -163,7 +163,7 @@ class ManageIQ::Providers::EmbeddedTerraform::AutomationManager::Stack < ManageI
               when "number"
                 num = output["value"]
                 num.kind_of?(Integer) ? [num.to_s, "integer"] : [num.to_s, "float"]
-              when "bool"
+              when "boolean"
                 [output["value"].to_s, "boolean"]
               when "list"
                 [output["value"].to_json, "array"]
