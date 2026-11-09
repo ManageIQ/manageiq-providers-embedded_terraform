@@ -101,8 +101,8 @@ class ManageIQ::Providers::EmbeddedTerraform::AutomationManager::Stack < ManageI
 
   def retireable?
     # return false, if service is a ServiceTerraformTemplate, handles retire itself, raw_delete_stack should not be called.
-    # return true, if service is ServiceEmbeddedTerraform, raw_delete_stack should be called.
-    service.instance_of?(ServiceEmbeddedTerraform)
+    # return true, if service is ServiceEmbeddedTerraform or ServiceGeneric, raw_delete_stack should be called.
+    !service.instance_of?(ServiceTerraformTemplate)
   end
 
   def raw_delete_stack
