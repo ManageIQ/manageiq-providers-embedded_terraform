@@ -13,6 +13,7 @@ User=manageiq
 Group=manageiq
 Slice=manageiq.slice
 Environment=PODMAN_SYSTEMD_UNIT=%n
+EnvironmentFile=/etc/default/manageiq-container-images.properties
 KillMode=mixed
 Delegate=yes
 Type=notify
